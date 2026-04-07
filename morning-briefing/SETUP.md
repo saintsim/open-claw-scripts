@@ -142,3 +142,43 @@ launchctl unload -w \
 ## Why this bypasses OpenClaw's announce summarization
 
 The script produces **no stdout** (all output goes to the log file). Even if OpenClaw's cron triggers it via an isolated agent with `announce` delivery, there is nothing for the agent to summarize — the script has already posted directly to Discord before the agent can say anything.
+
+---
+
+## Alternative delivery: OpenClaw local HTTP API (no webhook URL needed)
+
+OpenClaw exposes a local HTTP API on `http://localhost:18789`. You can use this instead of a Discord webhook — messages are sent over the existing bot connection, so no webhook setup is needed.
+
+To switch to this method, replace the `post_to_discord()` function in `briefing.sh` with:
+
+```bash
+OPENCLAW_CHANNEL="channel:1488911439912636428"   # your #briefing channel ID
+
+post_to_discord() {
+  local content="$1"
+
+  local payload
+  payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+  'tool': 'agent_send',
+  'input': {
+    'channel': sys.argv[1],
+    'message': sys.argv[2]
+  }
+}))
+" "$OPENCLAW_CHANNEL" "$content")
+
+  curl -fsSL -X POST \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "http://localhost:18789/tools/invoke"
+}
+```
+
+**Prerequisites for the local API approach:**
+- The OpenClaw gateway daemon must be running: `openclaw gateway status`
+- The `channels.discord.token` in `~/.openclaw/openclaw.json` must be a **plaintext string** (not a `SecretRef`) — there is a known bug ([openclaw/openclaw#33573](https://github.com/openclaw/openclaw/issues/33573)) where SecretRef tokens fail on outbound sends
+- Channel `1488911439912636428` must be in your `guilds` allowlist in `openclaw.json`
+
+The webhook approach (used by default in `briefing.sh`) requires no running daemon and has no known bugs, which is why it is the default here.
