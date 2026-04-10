@@ -90,7 +90,7 @@ for item in items[:count]:
             link = (lel.get('href') or lel.text or '').strip()
 
     if title and link:
-        results.append(f'[{title}]({link})')
+        results.append(f'• [{title}]({link})')
 
 print('\n'.join(results))
 "
