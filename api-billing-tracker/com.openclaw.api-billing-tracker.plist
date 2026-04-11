@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.openclaw.api-billing-tracker.plist
+  Install to: ~/Library/LaunchAgents/com.openclaw.api-billing-tracker.plist
+  Runs billing-tracker.sh at 8:00 AM local time (set Mac timezone to Asia/Tokyo).
+
+  launchd catches up missed jobs on wake — if the Mac was asleep at 8 AM,
+  the job runs as soon as it wakes. Use: launchctl load -w <plist path>
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.api-billing-tracker</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/openclaw/.openclaw/workspace/api-billing-tracker/billing-tracker.sh</string>
+  </array>
+
+  <!-- Runs at 08:00 local time. Mac must be set to Asia/Tokyo for JST. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Ensure PATH includes Homebrew python3 on Apple Silicon -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/openclaw</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/openclaw/.openclaw/logs/api-billing-tracker-launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/openclaw/.openclaw/logs/api-billing-tracker-launchd.log</string>
+
+  <!-- Do NOT run immediately on load, only on schedule -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
