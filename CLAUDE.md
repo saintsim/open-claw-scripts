@@ -16,6 +16,11 @@ api-billing-tracker/
   billing-tracker.sh                         # Fetches Claude API cost + Code plan %, posts to Discord
   com.openclaw.api-billing-tracker.plist     # launchd job definition (8 AM JST daily)
   SETUP.md                                   # Step-by-step deployment instructions
+
+daily-market-update/
+  market-update.sh                              # Fetches FX/equity/commodity prices from Yahoo Finance, posts to Discord
+  com.openclaw.daily-market-update.plist        # launchd job definition (8 AM JST daily)
+  SETUP.md                                      # Step-by-step deployment instructions
 ```
 
 ## Key conventions
