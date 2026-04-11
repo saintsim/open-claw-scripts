@@ -11,14 +11,21 @@ morning-briefing/
   briefing.sh                         # Main script — fetches RSS feeds, posts to Discord
   com.openclaw.morning-briefing.plist # launchd job definition (8 AM JST daily)
   SETUP.md                            # Step-by-step deployment instructions
+
+api-billing-tracker/
+  billing-tracker.sh                         # Fetches Claude API cost + Code plan %, posts to Discord
+  com.openclaw.api-billing-tracker.plist     # launchd job definition (8 AM JST daily)
+  SETUP.md                                   # Step-by-step deployment instructions
 ```
 
 ## Key conventions
 
 - **No stdout from scripts.** All logging goes to `~/.openclaw/logs/<script>.log` via the `log()` helper. This is intentional — OpenClaw's agent delivery layer captures stdout and will summarize or announce it. Keeping stdout silent means the script controls its own output (posting directly to Discord).
-- **Discord posting.** The default delivery method is a Discord webhook (`WEBHOOK_URL` in `briefing.sh`). There is also an alternative using OpenClaw's local HTTP API on `localhost:18789` — see the bottom of `SETUP.md`.
-- **Python for XML/JSON.** The scripts shell out to `python3` for RSS parsing and JSON encoding rather than relying on `jq` or `xmllint`, since `python3` ships reliably with macOS.
+- **Discord posting.** The default delivery method is a Discord webhook (`WEBHOOK_URL` in each script). There is also an alternative using OpenClaw's local HTTP API on `localhost:18789` — see the bottom of `morning-briefing/SETUP.md`.
+- **Python for XML/JSON.** The scripts shell out to `python3` for feed parsing and JSON encoding rather than relying on `jq` or `xmllint`, since `python3` ships reliably with macOS.
 - **Deploy path.** Scripts are deployed to `/Users/openclaw/.openclaw/workspace/<script-name>/` on the target Mac Mini, not run directly from this repo checkout.
+- **All scheduling via launchd.** Every script in this repo is triggered by a `com.openclaw.<name>.plist` launchd agent installed to `~/Library/LaunchAgents/`. Do not use crontab or other schedulers — launchd handles wake-from-sleep catch-up correctly.
+- **No LLM calls per run unless explicitly agreed.** Scripts must not call any AI model as part of their normal execution — each daily/scheduled run should be pure shell + HTTP + python3 data processing. This keeps costs predictable and avoids OpenClaw summarising intermediate output. The only documented exception is `api-billing-tracker`, which makes a single 1-token call to `claude-haiku` to read rate-limit response headers (noted in its SETUP.md and agreed with the repo owner). Any future exception must be documented in the relevant SETUP.md and noted here.
 
 ## Testing changes
 
