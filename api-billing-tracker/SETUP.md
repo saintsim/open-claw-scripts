@@ -25,20 +25,31 @@ Claude bill update -
 1. Open your Discord server → channel settings → Integrations → Webhooks → New Webhook
 2. Copy the webhook URL
 
-## Step 2 — Create an Anthropic admin API key
+## Step 2 — Extract your platform session token
 
-The cost report endpoint requires an **admin** key, not a regular API key.
+The cost report API requires the same auth token your browser uses when you
+view the cost page. Admin API keys are only available on org/enterprise plans;
+this session token approach works for any account.
 
-1. Go to [platform.claude.com](https://platform.claude.com) → Settings → API Keys
-2. Click **Create Key** → choose type **Admin** (prefix `sk-ant-admin…`)
-3. Copy the key — you won't see it again
+**On a desktop browser (Chrome recommended):**
+
+1. Go to **platform.claude.com/workspaces/default/cost**
+2. Open DevTools (`Cmd+Option+I` on Mac) → **Network** tab
+3. Reload the page (`Cmd+R`)
+4. In the filter box, type **`cost_report`**
+5. Click the matching request
+6. Under **Headers** → **Request Headers**, find the **`Authorization`** line
+7. Copy the value — it will look like `Bearer eyJhbGc...` (a long JWT string)
+
+> **The token will expire** — typically after days to weeks. If the script
+> starts returning auth errors, repeat this step to get a fresh token.
 
 ## Step 3 — Edit billing-tracker.sh
 
 Replace the two placeholders near the top of the script:
 
 ```bash
-ANTHROPIC_ADMIN_API_KEY="sk-ant-admin-..."          # your admin key
+PLATFORM_SESSION_TOKEN="Bearer eyJhbGc..."          # token from Step 2
 WEBHOOK_URL="https://discord.com/api/webhooks/..."  # your webhook
 ```
 
@@ -121,7 +132,7 @@ launchctl start com.openclaw.api-billing-tracker
 
 | Symptom | Fix |
 |---|---|
-| `cost_report request failed` | Check admin API key; regular keys return 403 |
+| `cost_report request failed` | Session token expired — re-extract from devtools (Step 2) |
 | `API cost this month: $0.00` | Check log for raw JSON — field names may differ; adjust python3 parsing in script |
 | `Code - unavailable` | Run `claude` once as `openclaw` user to authenticate |
 | `accessToken missing` | Token may have expired; re-authenticate with `claude` |

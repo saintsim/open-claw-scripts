@@ -1,9 +1,9 @@
 #!/bin/bash
 # api-billing-tracker/billing-tracker.sh
 #
-# Fetches monthly Claude API spend (via Anthropic admin API) and Claude Code
-# plan usage (via a one-token haiku call purely to read rate-limit response
-# headers), then posts a summary to Discord.
+# Fetches monthly Claude API spend (via platform.claude.com session token) and
+# Claude Code plan usage (via a one-token haiku call purely to read rate-limit
+# response headers), then posts a summary to Discord.
 #
 # Designed to run via launchd at 8 AM JST daily.
 # Produces no meaningful stdout — OpenClaw-safe.
@@ -13,7 +13,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration — edit these before deploying
 # ---------------------------------------------------------------------------
-ANTHROPIC_ADMIN_API_KEY="REPLACE_WITH_ANTHROPIC_ADMIN_API_KEY"
+
+# Bearer token extracted from platform.claude.com devtools (see SETUP.md).
+# This is used to call the cost_report API exactly as your browser does.
+PLATFORM_SESSION_TOKEN="REPLACE_WITH_PLATFORM_SESSION_TOKEN"
+
 WEBHOOK_URL="REPLACE_WITH_DISCORD_WEBHOOK_URL"
 
 # ---------------------------------------------------------------------------
@@ -34,8 +38,8 @@ log() {
 # ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
-if [[ "$ANTHROPIC_ADMIN_API_KEY" == REPLACE_WITH_* ]]; then
-  log "ERROR: ANTHROPIC_ADMIN_API_KEY not set — see SETUP.md"
+if [[ "$PLATFORM_SESSION_TOKEN" == REPLACE_WITH_* ]]; then
+  log "ERROR: PLATFORM_SESSION_TOKEN not set — see SETUP.md"
   exit 1
 fi
 if [[ "$WEBHOOK_URL" == REPLACE_WITH_* ]]; then
@@ -68,12 +72,13 @@ log "Starting (window: ${MONTH_START_ISO} → ${NOW_ISO})"
 
 # ---------------------------------------------------------------------------
 # 1. Monthly API token cost — GET /v1/organizations/cost_report
-#    Requires an admin API key (sk-ant-admin...) from platform.claude.com.
+#    Uses the same Bearer token your browser sends when viewing
+#    platform.claude.com/workspaces/default/cost (see SETUP.md).
 #    Returns cost broken down per model/workspace; we sum everything.
 # ---------------------------------------------------------------------------
 log "Fetching cost_report..."
 COST_JSON=$(curl -fsSL --max-time 30 \
-  -H "x-api-key: ${ANTHROPIC_ADMIN_API_KEY}" \
+  -H "Authorization: Bearer ${PLATFORM_SESSION_TOKEN}" \
   -H "anthropic-version: 2023-06-01" \
   "https://api.anthropic.com/v1/organizations/cost_report?starting_at=${MONTH_START_ISO}&ending_at=${NOW_ISO}") || {
   log "ERROR: cost_report request failed"
