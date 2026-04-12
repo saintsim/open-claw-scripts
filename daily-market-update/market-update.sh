@@ -38,6 +38,26 @@ if [[ "$WEBHOOK_URL" == REPLACE_WITH_* ]]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# post_to_discord <message>
+# JSON-encodes content and POSTs to the webhook.
+# ---------------------------------------------------------------------------
+post_to_discord() {
+  local content="$1"
+
+  local payload
+  payload=$(python3 -c "
+import json, sys
+print(json.dumps({'content': sys.argv[1]}))
+" "$content")
+
+  curl -fsSL \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "$WEBHOOK_URL"
+}
+
 log "Starting daily-market-update"
 
 # ---------------------------------------------------------------------------
@@ -45,19 +65,9 @@ log "Starting daily-market-update"
 # (date +%u: 1=Mon … 7=Sun)
 # ---------------------------------------------------------------------------
 if [[ "$(date +%u)" == "7" ]]; then
-  CLOSED_PAYLOAD=$(python3 -c "
-import json, sys
-print(json.dumps({'content': sys.argv[1]}))
-" "**Market Update** — Markets closed today. Check back tomorrow.")
-
-  curl -fsSL \
-    -X POST \
-    -H "Content-Type: application/json" \
-    -d "$CLOSED_PAYLOAD" \
-    "$WEBHOOK_URL" \
+  post_to_discord "**Market Update** — Markets closed today. Check back tomorrow." \
     && log "Sunday: posted closed notice" \
     || { log "ERROR: Discord webhook POST failed (closed notice)"; exit 1; }
-
   exit 0
 fi
 
@@ -113,23 +123,14 @@ if data.empty:
     print("ERROR: yfinance returned no data", file=sys.stderr)
     sys.exit(1)
 
-# data["Close"] is a DataFrame with tickers as columns (multi-ticker download)
 try:
     closes = data["Close"]
 except KeyError:
     print("ERROR: no Close column in yfinance result", file=sys.stderr)
     sys.exit(1)
 
-def fmt(sym, decimals=2, prefix=""):
-    """Format one quote as  '$1,234.56  ▲ +3.21 (+0.26%)'"""
-    try:
-        series = closes[sym].dropna()
-    except KeyError:
-        return "N/A"
-    if len(series) < 2:
-        return "N/A"
-    price  = float(series.iloc[-1])
-    prev   = float(series.iloc[-2])
+def _render(price, prev, decimals, prefix=""):
+    """Shared formatter used by fmt() and fmt_jpygbp()."""
     change = price - prev
     pct    = (change / prev * 100) if prev != 0 else 0.0
     arrow  = "▲" if change >= 0 else "▼"
@@ -139,10 +140,19 @@ def fmt(sym, decimals=2, prefix=""):
         f"{arrow} {sign}{change:.{decimals}f} ({sign}{pct:.2f}%)"
     )
 
+def fmt(sym, decimals=2, prefix=""):
+    """Format a standard quote: look up sym in closes and render."""
+    try:
+        series = closes[sym].dropna()
+    except KeyError:
+        return "N/A"
+    if len(series) < 2:
+        return "N/A"
+    return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
+
 def fmt_jpygbp():
     """JPY/GBP rate with fallback: try JPYGBP=X directly; if unavailable,
-    compute 1/GBPJPY=X. Both paths resolve price/prev first, then share a
-    single format block — each series is fetched exactly once.
+    compute 1/GBPJPY=X. Both paths resolve price/prev then call _render.
     Note: pct change of 1/x is approximately but not exactly −1× the pct
     change of x (the bases differ; they converge for small daily moves)."""
     price = prev = None
@@ -151,8 +161,7 @@ def fmt_jpygbp():
     try:
         series = closes["JPYGBP=X"].dropna()
         if len(series) >= 2:
-            price = float(series.iloc[-1])
-            prev  = float(series.iloc[-2])
+            price, prev = float(series.iloc[-1]), float(series.iloc[-2])
     except KeyError:
         pass
 
@@ -161,25 +170,15 @@ def fmt_jpygbp():
         try:
             series = closes["GBPJPY=X"].dropna()
             if len(series) >= 2:
-                g      = float(series.iloc[-1])
-                g_prev = float(series.iloc[-2])
+                g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
                 if g != 0 and g_prev != 0:
-                    price = 1.0 / g
-                    prev  = 1.0 / g_prev
+                    price, prev = 1.0 / g, 1.0 / g_prev
         except KeyError:
             pass
 
-    if price is None or prev is None or prev == 0:
+    if price is None or prev is None:
         return "N/A"
-
-    change = price - prev
-    pct    = change / prev * 100
-    arrow  = "▲" if change >= 0 else "▼"
-    sign   = "+" if change >= 0 else ""
-    return (
-        f"{price:,.6f}  "
-        f"{arrow} {sign}{change:.6f} ({sign}{pct:.2f}%)"
-    )
+    return _render(price, prev, 6)
 
 today = datetime.now().strftime("%a %d %b %Y")
 
@@ -207,9 +206,8 @@ print("\n".join(lines))
 PYEOF
 )
 
-# Note: set -euo pipefail already exits if the Python block above fails.
-# The empty-output check catches the edge case where Python exits 0 but
-# produces nothing (e.g. all print statements were accidentally suppressed).
+# set -euo pipefail exits if the Python block above fails.
+# This guard catches the rare edge case where Python exits 0 but prints nothing.
 if [[ -z "$MESSAGE" ]]; then
   log "ERROR: Python produced no output"
   exit 1
@@ -218,18 +216,9 @@ fi
 log "Market data fetched and formatted"
 
 # ---------------------------------------------------------------------------
-# Post to Discord webhook
+# Post to Discord
 # ---------------------------------------------------------------------------
-POST_PAYLOAD=$(python3 -c "
-import json, sys
-print(json.dumps({'content': sys.argv[1]}))
-" "$MESSAGE")
-
-curl -fsSL \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -d "$POST_PAYLOAD" \
-  "$WEBHOOK_URL" \
+post_to_discord "$MESSAGE" \
   && log "Posted to Discord" \
   || { log "ERROR: Discord webhook POST failed"; exit 1; }
 
