@@ -169,7 +169,7 @@ launchctl unload -w \
 - **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
 - If Yahoo Finance changes their data format, the log will show `ERROR: yfinance download failed` or a symbol will show `N/A` — update `yfinance` first: `pip3 install --upgrade yfinance`
-- **Weekends**: the launchd job fires every day including Saturday and Sunday. At 8 AM JST Saturday, US markets closed a few hours earlier, so the post shows Friday's closing prices with Friday's real change vs Thursday — a useful post. At 8 AM JST Sunday, no new trading has occurred since Saturday's run, so `iloc[-1]` and `iloc[-2]` are still Friday and Thursday — the Sunday post is a duplicate of Saturday's. This is expected — not a script failure.
+- **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday skips the data fetch entirely and posts "Markets closed today. Check back tomorrow." so you know the script is still running.
 
 ---
 

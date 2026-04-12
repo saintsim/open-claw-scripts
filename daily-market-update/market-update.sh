@@ -41,6 +41,27 @@ fi
 log "Starting daily-market-update"
 
 # ---------------------------------------------------------------------------
+# Sunday: markets closed — post a short notice and exit
+# (date +%u: 1=Mon … 7=Sun)
+# ---------------------------------------------------------------------------
+if [[ "$(date +%u)" == "7" ]]; then
+  CLOSED_PAYLOAD=$(python3 -c "
+import json, sys
+print(json.dumps({'content': sys.argv[1]}))
+" "**Market Update** — Markets closed today. Check back tomorrow.")
+
+  curl -fsSL \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$CLOSED_PAYLOAD" \
+    "$WEBHOOK_URL" \
+    && log "Sunday: posted closed notice" \
+    || { log "ERROR: Discord webhook POST failed (closed notice)"; exit 1; }
+
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Fetch and format market data
 #
 # Uses the yfinance library, which handles Yahoo Finance rate-limiting and
