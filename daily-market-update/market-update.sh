@@ -89,169 +89,20 @@ if [[ -n "$NOTICE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Fetch and format market data
+# Fetch and format market data via market_data.py
 #
-# Uses the yfinance library, which handles Yahoo Finance rate-limiting and
-# session management transparently.
-#
-# Symbols fetched:
-#   JPYGBP=X  JPY/GBP rate (preferred, £ per ¥)
-#   GBPJPY=X  GBP/JPY rate (fallback — inverted to produce JPY/GBP if
-#             JPYGBP=X is unavailable on Yahoo Finance)
-#   USDJPY=X  USD/JPY exchange rate  (¥ per $)
-#   GS        Goldman Sachs stock
-#   AAPL      Apple stock
-#   ^GSPC     S&P 500 index
-#   GC=F      Gold futures (spot proxy, $/oz)
-#   SI=F      Silver futures (spot proxy, $/oz)
-#   CL=F      WTI crude oil futures ($/bbl)
-#
-# Downloads 5 days of daily closes in one request. At 08:00 JST US markets
-# are closed, so iloc[-1] = yesterday's close and iloc[-2] = the close before
-# that, giving the prior-day move as the "change" figure.
+# market_data.py uses the yfinance library (pip3 install yfinance) to
+# download 5 days of daily closes for FX, equity, and commodity symbols.
+# At 08:00 JST US markets are closed, so iloc[-1] = yesterday's close and
+# iloc[-2] = the prior close, giving the previous day's move.
 # ---------------------------------------------------------------------------
-MESSAGE=$(python3 << 'PYEOF'
-import sys
-from datetime import datetime
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py")
 
-try:
-    import yfinance as yf
-except ImportError:
-    print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
-    sys.exit(1)
-
-# GBPJPY=X is fetched alongside JPYGBP=X as a fallback in case the latter
-# is not published by Yahoo Finance.
-SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
-
-try:
-    data = yf.download(
-        tickers=SYMBOLS,
-        period="5d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
-except Exception as e:
-    print(f"ERROR: yfinance download failed: {e}", file=sys.stderr)
-    sys.exit(1)
-
-if data.empty:
-    print("ERROR: yfinance returned no data", file=sys.stderr)
-    sys.exit(1)
-
-# data["Close"] is a DataFrame with tickers as columns (multi-ticker download)
-try:
-    closes = data["Close"]
-except KeyError:
-    print("ERROR: no Close column in yfinance result", file=sys.stderr)
-    sys.exit(1)
-
-# Reference date: most recent close among FX symbols, which trade every
-# weekday. Used to detect per-instrument market closures (e.g. a US holiday
-# closes equities but not FX or commodity futures).
-def _compute_ref_date():
-    dates = []
-    for sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
-        try:
-            s = closes[sym].dropna()
-            if len(s):
-                dates.append(s.index[-1].date())
-        except (KeyError, AttributeError):
-            pass
-    return max(dates) if dates else None
-
-
-ref_date = _compute_ref_date()
-
-
-def _render(price, prev, decimals, prefix=""):
-    """Shared formatter used by fmt() and fmt_jpygbp()."""
-    change = price - prev
-    pct    = (change / prev * 100) if prev != 0 else 0.0
-    arrow  = "▲" if change >= 0 else "▼"
-    sign   = "+" if change >= 0 else ""
-    return (
-        f"{prefix}{price:,.{decimals}f}  "
-        f"{arrow} {sign}{change:.{decimals}f} ({sign}{pct:.2f}%)"
-    )
-
-
-def fmt(sym, decimals=2, prefix=""):
-    """Format a standard quote. Returns 'market closed' when the symbol's
-    last data date lags the FX reference date (holiday closure)."""
-    try:
-        series = closes[sym].dropna()
-    except KeyError:
-        return "N/A"
-    if len(series) < 2:
-        return "N/A"
-    if ref_date is not None and series.index[-1].date() < ref_date:
-        return "market closed"
-    return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
-
-
-def fmt_jpygbp():
-    """JPY/GBP rate with fallback: try JPYGBP=X directly; if unavailable,
-    compute 1/GBPJPY=X. Both paths resolve price/prev then call _render.
-    Note: pct change of 1/x is approximately but not exactly −1× the pct
-    change of x (the bases differ; they converge for small daily moves)."""
-    price = prev = None
-
-    # Preferred: direct JPYGBP=X quote
-    try:
-        series = closes["JPYGBP=X"].dropna()
-        if len(series) >= 2:
-            price, prev = float(series.iloc[-1]), float(series.iloc[-2])
-    except KeyError:
-        pass
-
-    # Fallback: invert GBPJPY=X
-    if price is None:
-        try:
-            series = closes["GBPJPY=X"].dropna()
-            if len(series) >= 2:
-                g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
-                if g != 0 and g_prev != 0:
-                    price, prev = 1.0 / g, 1.0 / g_prev
-        except KeyError:
-            pass
-
-    if price is None or prev is None:
-        return "N/A"
-    return _render(price, prev, 6)
-
-
-today = datetime.now().strftime("%a %d %b %Y")
-
-lines = [
-    f"**Market Update — {today}**",
-    "",
-    "**FX**",
-    f"• JPY/GBP:  {fmt_jpygbp()}",
-    f"• USD/JPY:  {fmt('USDJPY=X')}",
-    "",
-    "**Equities**",
-    f"• Goldman Sachs (GS):  {fmt('GS', prefix='$')}",
-    f"• Apple (AAPL):        {fmt('AAPL', prefix='$')}",
-    f"• S&P 500:             {fmt('^GSPC')}",
-    "",
-    "**Commodities**",
-    f"• Gold ($/oz):         {fmt('GC=F', prefix='$')}",
-    f"• Silver ($/oz):       {fmt('SI=F', 3, '$')}",
-    f"• WTI Crude ($/bbl):   {fmt('CL=F', prefix='$')}",
-    "",
-    "_Change vs prior close_",
-]
-
-print("\n".join(lines))
-PYEOF
-)
-
-# set -euo pipefail exits if the Python block above fails.
+# set -euo pipefail exits if market_data.py fails.
 # This guard catches the rare edge case where Python exits 0 but prints nothing.
 if [[ -z "$MESSAGE" ]]; then
-  log "ERROR: Python produced no output"
+  log "ERROR: market_data.py produced no output"
   exit 1
 fi
 

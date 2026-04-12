@@ -186,6 +186,20 @@ launchctl unload -w \
 
 ---
 
+## Running the tests
+
+The Python logic lives in `market_data.py` and has a pytest suite in `tests/`.
+No internet connection is required — `yf.download` is mocked throughout.
+
+```bash
+pip3 install pytest pandas yfinance
+pytest daily-market-update/tests/
+```
+
+Expected output: `25 passed`.
+
+---
+
 ## No LLM calls
 
 This script makes no AI model calls. Data processing is pure Python (`yfinance`, `json`). This is consistent with the repo policy documented in `CLAUDE.md`.

@@ -18,9 +18,13 @@ api-billing-tracker/
   SETUP.md                                   # Step-by-step deployment instructions
 
 daily-market-update/
-  market-update.sh                              # Fetches FX/equity/commodity prices from Yahoo Finance, posts to Discord
+  market-update.sh                              # Shell entry point — day-of-week logic, calls market_data.py, posts to Discord
+  market_data.py                                # Python module — fetches + formats market data (testable standalone)
   com.openclaw.daily-market-update.plist        # launchd job definition (8 AM JST daily)
   SETUP.md                                      # Step-by-step deployment instructions
+  tests/
+    conftest.py                                 # pytest path setup
+    test_market_data.py                         # Unit tests for market_data.py (mocks yf.download)
 ```
 
 ## Key conventions
