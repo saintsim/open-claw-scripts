@@ -47,7 +47,7 @@ log "Starting daily-market-update"
 # session management transparently.
 #
 # Symbols fetched:
-#   GBPJPY=X  GBP/JPY exchange rate  (¥ per £)
+#   JPYGBP=X  JPY/GBP exchange rate  (£ per ¥)
 #   USDJPY=X  USD/JPY exchange rate  (¥ per $)
 #   GS        Goldman Sachs stock
 #   AAPL      Apple stock
@@ -70,7 +70,7 @@ except ImportError:
     print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
     sys.exit(1)
 
-SYMBOLS = ["GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
+SYMBOLS = ["JPYGBP=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
 try:
     data = yf.download(
@@ -121,7 +121,7 @@ lines = [
     f"**Market Update — {today}**",
     "",
     "**FX**",
-    f"• GBP/JPY:  {fmt('GBPJPY=X')}",
+    f"• JPY/GBP:  {fmt('JPYGBP=X', 6)}",
     f"• USD/JPY:  {fmt('USDJPY=X')}",
     "",
     "**Equities**",

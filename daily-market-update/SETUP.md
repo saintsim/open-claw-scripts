@@ -19,7 +19,7 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
 
 | Instrument | Symbol |
 |---|---|
-| GBP/JPY FX rate | GBPJPY=X |
+| JPY/GBP FX rate | JPYGBP=X |
 | USD/JPY FX rate | USDJPY=X |
 | Goldman Sachs stock | GS |
 | Apple stock | AAPL |
