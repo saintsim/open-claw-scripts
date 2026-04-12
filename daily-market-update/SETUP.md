@@ -169,7 +169,7 @@ launchctl unload -w \
 - **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
 - If Yahoo Finance changes their data format, the log will show `ERROR: yfinance download failed` or a symbol will show `N/A` — update `yfinance` first: `pip3 install --upgrade yfinance`
-- **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday skips the data fetch entirely and posts "Markets closed today. Check back tomorrow." so you know the script is still running.
+- **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday posts "Markets closed today. Check back tomorrow." Monday posts "US markets open later today (~11:30pm JST). Next full update Tuesday." Both Sunday and Monday skip the yfinance fetch entirely — on Monday, FX/futures have technically reopened but daily bars won't close until 5pm EST, so yfinance would just return Friday's data again (identical to Saturday's post).
 
 ---
 

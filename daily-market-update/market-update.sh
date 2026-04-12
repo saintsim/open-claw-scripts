@@ -61,13 +61,25 @@ print(json.dumps({'content': sys.argv[1]}))
 log "Starting daily-market-update"
 
 # ---------------------------------------------------------------------------
-# Sunday: markets closed — post a short notice and exit
-# (date +%u: 1=Mon … 7=Sun)
+# Sunday / Monday: no complete daily bars available — post a heartbeat
+# and exit. (date +%u: 1=Mon … 7=Sun)
+#
+# Sunday:  markets closed all day.
+# Monday:  FX/futures just reopened but daily bars won't close until
+#          5pm EST Monday, so yfinance would return Friday's data again —
+#          identical to Saturday's post.
 # ---------------------------------------------------------------------------
-if [[ "$(date +%u)" == "7" ]]; then
+DAY=$(date +%u)
+if [[ "$DAY" == "7" ]]; then
   post_to_discord "**Market Update** — Markets closed today. Check back tomorrow." \
     && log "Sunday: posted closed notice" \
     || { log "ERROR: Discord webhook POST failed (closed notice)"; exit 1; }
+  exit 0
+fi
+if [[ "$DAY" == "1" ]]; then
+  post_to_discord "**Market Update** — US markets open later today (~11:30pm JST). Next full update Tuesday." \
+    && log "Monday: posted pre-open notice" \
+    || { log "ERROR: Discord webhook POST failed (pre-open notice)"; exit 1; }
   exit 0
 fi
 
