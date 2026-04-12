@@ -161,7 +161,9 @@ def _compute_ref_date():
             pass
     return max(dates) if dates else None
 
+
 ref_date = _compute_ref_date()
+
 
 def _render(price, prev, decimals, prefix=""):
     """Shared formatter used by fmt() and fmt_jpygbp()."""
@@ -173,6 +175,7 @@ def _render(price, prev, decimals, prefix=""):
         f"{prefix}{price:,.{decimals}f}  "
         f"{arrow} {sign}{change:.{decimals}f} ({sign}{pct:.2f}%)"
     )
+
 
 def fmt(sym, decimals=2, prefix=""):
     """Format a standard quote. Returns 'market closed' when the symbol's
@@ -186,6 +189,7 @@ def fmt(sym, decimals=2, prefix=""):
     if ref_date is not None and series.index[-1].date() < ref_date:
         return "market closed"
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
+
 
 def fmt_jpygbp():
     """JPY/GBP rate with fallback: try JPYGBP=X directly; if unavailable,
@@ -216,6 +220,7 @@ def fmt_jpygbp():
     if price is None or prev is None:
         return "N/A"
     return _render(price, prev, 6)
+
 
 today = datetime.now().strftime("%a %d %b %Y")
 
