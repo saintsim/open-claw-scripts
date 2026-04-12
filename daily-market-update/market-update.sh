@@ -72,7 +72,8 @@ log "Starting daily-market-update"
 # Adding a future notice day: add a case entry with NOTICE and NOTICE_LABEL.
 # ---------------------------------------------------------------------------
 DAY=$(date +%u)
-NOTICE="" NOTICE_LABEL=""
+NOTICE=""
+NOTICE_LABEL=""
 case "$DAY" in
   7) NOTICE="**Market Update** — Markets closed today. Check back tomorrow."
      NOTICE_LABEL="Sunday" ;;
@@ -149,15 +150,18 @@ except KeyError:
 # Reference date: most recent close among FX symbols, which trade every
 # weekday. Used to detect per-instrument market closures (e.g. a US holiday
 # closes equities but not FX or commodity futures).
-_fx_dates = []
-for _sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
-    try:
-        _s = closes[_sym].dropna()
-        if len(_s):
-            _fx_dates.append(_s.index[-1].date())
-    except (KeyError, AttributeError):
-        pass
-ref_date = max(_fx_dates) if _fx_dates else None
+def _compute_ref_date():
+    dates = []
+    for sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
+        try:
+            s = closes[sym].dropna()
+            if len(s):
+                dates.append(s.index[-1].date())
+        except (KeyError, AttributeError):
+            pass
+    return max(dates) if dates else None
+
+ref_date = _compute_ref_date()
 
 def _render(price, prev, decimals, prefix=""):
     """Shared formatter used by fmt() and fmt_jpygbp()."""
