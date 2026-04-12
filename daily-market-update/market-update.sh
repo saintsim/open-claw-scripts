@@ -126,7 +126,7 @@ SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "S
 
 try:
     data = yf.download(
-        tickers=" ".join(SYMBOLS),
+        tickers=SYMBOLS,
         period="5d",
         interval="1d",
         auto_adjust=True,
@@ -183,7 +183,7 @@ def fmt(sym, decimals=2, prefix=""):
         return "N/A"
     if len(series) < 2:
         return "N/A"
-    if ref_date and series.index[-1].date() < ref_date:
+    if ref_date is not None and series.index[-1].date() < ref_date:
         return "market closed"
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
 
