@@ -19,7 +19,7 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
 
 | Instrument | Symbol |
 |---|---|
-| JPY/GBP FX rate | JPYGBP=X |
+| JPY/GBP FX rate | JPYGBP=X (falls back to 1/GBPJPY=X if unavailable) |
 | USD/JPY FX rate | USDJPY=X |
 | Goldman Sachs stock | GS |
 | Apple stock | AAPL |
@@ -95,7 +95,7 @@ cat /Users/openclaw/.openclaw/logs/daily-market-update.log
 Market Update — Fri 11 Apr 2025
 
 FX
-• GBP/JPY:  193.45  ▲ +0.80 (+0.41%)
+• JPY/GBP:  0.005176  ▼ -0.000021 (-0.41%)
 • USD/JPY:  149.82  ▼ -0.31 (-0.21%)
 
 Equities

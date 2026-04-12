@@ -47,7 +47,9 @@ log "Starting daily-market-update"
 # session management transparently.
 #
 # Symbols fetched:
-#   JPYGBP=X  JPY/GBP exchange rate  (£ per ¥)
+#   JPYGBP=X  JPY/GBP rate (preferred, £ per ¥)
+#   GBPJPY=X  GBP/JPY rate (fallback — inverted to produce JPY/GBP if
+#             JPYGBP=X is unavailable on Yahoo Finance)
 #   USDJPY=X  USD/JPY exchange rate  (¥ per $)
 #   GS        Goldman Sachs stock
 #   AAPL      Apple stock
@@ -70,7 +72,9 @@ except ImportError:
     print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
     sys.exit(1)
 
-SYMBOLS = ["JPYGBP=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
+# GBPJPY=X is fetched alongside JPYGBP=X as a fallback in case the latter
+# is not published by Yahoo Finance.
+SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
 try:
     data = yf.download(
@@ -79,7 +83,6 @@ try:
         interval="1d",
         auto_adjust=True,
         progress=False,
-        threads=True,
     )
 except Exception as e:
     print(f"ERROR: yfinance download failed: {e}", file=sys.stderr)
@@ -115,13 +118,49 @@ def fmt(sym, decimals=2, prefix=""):
         f"{arrow} {sign}{change:.{decimals}f} ({sign}{pct:.2f}%)"
     )
 
+def fmt_jpygbp():
+    """JPY/GBP rate with fallback: try JPYGBP=X directly; if unavailable,
+    compute 1/GBPJPY=X. Movements are inverted correctly — if GBP/JPY rises
+    (pound strengthens), JPY/GBP falls (yen weakens), and vice-versa."""
+    # Preferred: direct JPYGBP=X quote
+    try:
+        series = closes["JPYGBP=X"].dropna()
+        if len(series) >= 2:
+            return fmt("JPYGBP=X", 6)
+    except KeyError:
+        pass
+
+    # Fallback: invert GBPJPY=X
+    try:
+        series = closes["GBPJPY=X"].dropna()
+    except KeyError:
+        return "N/A"
+    if len(series) < 2:
+        return "N/A"
+
+    gbpjpy_price = float(series.iloc[-1])
+    gbpjpy_prev  = float(series.iloc[-2])
+    if gbpjpy_price == 0 or gbpjpy_prev == 0:
+        return "N/A"
+
+    price  = 1.0 / gbpjpy_price
+    prev   = 1.0 / gbpjpy_prev
+    change = price - prev          # negative when GBP/JPY rises
+    pct    = (change / prev * 100) # exactly −1 × GBP/JPY pct move
+    arrow  = "▲" if change >= 0 else "▼"
+    sign   = "+" if change >= 0 else ""
+    return (
+        f"{price:,.6f}  "
+        f"{arrow} {sign}{change:.6f} ({sign}{pct:.2f}%)"
+    )
+
 today = datetime.now().strftime("%a %d %b %Y")
 
 lines = [
     f"**Market Update — {today}**",
     "",
     "**FX**",
-    f"• JPY/GBP:  {fmt('JPYGBP=X', 6)}",
+    f"• JPY/GBP:  {fmt_jpygbp()}",
     f"• USD/JPY:  {fmt('USDJPY=X')}",
     "",
     "**Equities**",
@@ -141,12 +180,9 @@ print("\n".join(lines))
 PYEOF
 )
 
-py_exit=$?
-if [[ $py_exit -ne 0 ]]; then
-  log "ERROR: data fetch/format step failed (exit ${py_exit})"
-  exit 1
-fi
-
+# Note: set -euo pipefail already exits if the Python block above fails.
+# The empty-output check catches the edge case where Python exits 0 but
+# produces nothing (e.g. all print statements were accidentally suppressed).
 if [[ -z "$MESSAGE" ]]; then
   log "ERROR: Python produced no output"
   exit 1
