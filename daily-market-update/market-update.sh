@@ -1,11 +1,13 @@
 #!/bin/bash
 # daily-market-update/market-update.sh
 #
-# Fetches FX rates, equity prices, and commodity prices from Yahoo Finance
-# and posts a formatted daily market summary to Discord via webhook.
+# Fetches FX rates, equity prices, and commodity prices via the yfinance
+# Python library and posts a formatted daily market summary to Discord.
 #
 # Designed to run via launchd at 8 AM JST daily.
 # Produces no meaningful stdout — OpenClaw-safe.
+#
+# Prerequisite: pip3 install yfinance  (see SETUP.md)
 
 set -euo pipefail
 
@@ -41,8 +43,8 @@ log "Starting daily-market-update"
 # ---------------------------------------------------------------------------
 # Fetch and format market data
 #
-# Uses Yahoo Finance v7 quote API (no API key required).
-# Python handles: cookie seeding, crumb fetching, quote request, formatting.
+# Uses the yfinance library, which handles Yahoo Finance rate-limiting and
+# session management transparently.
 #
 # Symbols fetched:
 #   GBPJPY=X  GBP/JPY exchange rate  (¥ per £)
@@ -54,90 +56,60 @@ log "Starting daily-market-update"
 #   SI=F      Silver futures (spot proxy, $/oz)
 #   CL=F      WTI crude oil futures ($/bbl)
 #
-# "Change" figures come from Yahoo's regularMarketChange /
-# regularMarketChangePercent fields — i.e. change vs prior close.
+# Downloads 5 days of daily closes in one request. At 08:00 JST US markets
+# are closed, so iloc[-1] = yesterday's close and iloc[-2] = the close before
+# that, giving the prior-day move as the "change" figure.
 # ---------------------------------------------------------------------------
 MESSAGE=$(python3 << 'PYEOF'
-import json, sys
-import urllib.request, urllib.parse
-import http.cookiejar
+import sys
 from datetime import datetime
 
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-BASE_HEADERS = {
-    "User-Agent": UA,
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
-# Cookie-aware opener so Yahoo Finance sets the session cookie
-cj = http.cookiejar.CookieJar()
-opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-
-def get_url(url, extra_headers=None):
-    h = dict(BASE_HEADERS)
-    if extra_headers:
-        h.update(extra_headers)
-    req = urllib.request.Request(url, headers=h)
-    with opener.open(req, timeout=25) as r:
-        return r.read().decode("utf-8", errors="replace")
-
-# Step 1: Seed cookies (best-effort — non-fatal if it fails)
 try:
-    get_url("https://finance.yahoo.com/")
-except Exception:
-    pass
+    import yfinance as yf
+except ImportError:
+    print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
+    sys.exit(1)
 
-# Step 2: Fetch crumb (required by Yahoo Finance v7 quote API)
-crumb = ""
-try:
-    crumb = get_url(
-        "https://query1.finance.yahoo.com/v1/test/getcrumb",
-        {"Referer": "https://finance.yahoo.com/"},
-    ).strip()
-except Exception as e:
-    print(f"WARN: crumb fetch failed ({e})", file=sys.stderr)
-
-# Step 3: Fetch quotes for all symbols in one request
 SYMBOLS = ["GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
-params = "symbols=" + urllib.parse.quote(",".join(SYMBOLS))
-if crumb:
-    params += "&crumb=" + urllib.parse.quote(crumb)
-quote_url = "https://query1.finance.yahoo.com/v7/finance/quote?" + params
 
 try:
-    raw = get_url(quote_url, {
-        "Accept": "application/json",
-        "Referer": "https://finance.yahoo.com/",
-    })
-    data = json.loads(raw)
+    data = yf.download(
+        tickers=" ".join(SYMBOLS),
+        period="5d",
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+        threads=True,
+    )
 except Exception as e:
-    print(f"ERROR: quote fetch failed: {e}", file=sys.stderr)
+    print(f"ERROR: yfinance download failed: {e}", file=sys.stderr)
     sys.exit(1)
 
-quotes = data.get("quoteResponse", {}).get("result", [])
-if not quotes:
-    api_err = data.get("quoteResponse", {}).get("error") or ""
-    print(f"ERROR: empty quote result. API error: {api_err}", file=sys.stderr)
+if data.empty:
+    print("ERROR: yfinance returned no data", file=sys.stderr)
     sys.exit(1)
 
-by_sym = {q["symbol"]: q for q in quotes}
+# data["Close"] is a DataFrame with tickers as columns (multi-ticker download)
+try:
+    closes = data["Close"]
+except KeyError:
+    print("ERROR: no Close column in yfinance result", file=sys.stderr)
+    sys.exit(1)
 
 def fmt(sym, decimals=2, prefix=""):
-    """Format a single quote as  '1,234.56  ▲ +3.21 (+0.26%)'"""
-    q = by_sym.get(sym)
-    if not q:
+    """Format one quote as  '$1,234.56  ▲ +3.21 (+0.26%)'"""
+    try:
+        series = closes[sym].dropna()
+    except KeyError:
         return "N/A"
-    price  = q.get("regularMarketPrice")
-    change = q.get("regularMarketChange") or 0.0
-    pct    = q.get("regularMarketChangePercent") or 0.0
-    if price is None:
+    if len(series) < 2:
         return "N/A"
-    arrow = "▲" if change >= 0 else "▼"
-    sign  = "+" if change >= 0 else ""
+    price  = float(series.iloc[-1])
+    prev   = float(series.iloc[-2])
+    change = price - prev
+    pct    = (change / prev * 100) if prev != 0 else 0.0
+    arrow  = "▲" if change >= 0 else "▼"
+    sign   = "+" if change >= 0 else ""
     return (
         f"{prefix}{price:,.{decimals}f}  "
         f"{arrow} {sign}{change:.{decimals}f} ({sign}{pct:.2f}%)"

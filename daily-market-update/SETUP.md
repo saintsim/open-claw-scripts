@@ -37,6 +37,10 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
   - Set if needed: `sudo systemsetup -settimezone Asia/Tokyo`
 - `python3` available (confirm: `python3 --version`)
 - `curl` available (ships with macOS)
+- `yfinance` Python library installed:
+  ```bash
+  pip3 install yfinance
+  ```
 
 ---
 
@@ -160,11 +164,11 @@ launchctl unload -w \
 
 ## Data source notes
 
-- **All data from Yahoo Finance** — no API key, no account required
-- The script fetches a session cookie and crumb token before the quote request (Yahoo Finance requires this as of 2023)
-- **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so `regularMarketPrice` reflects the previous day's close and the change figure shows the prior day's move
+- **All data from Yahoo Finance via the `yfinance` library** — no API key, no account required
+- `yfinance` handles session management and rate-limiting transparently; the script downloads 5 days of daily closes in a single request
+- **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
-- If Yahoo Finance changes their API, the log will show `ERROR: quote fetch failed` — the fix is usually updating the crumb endpoint URL
+- If Yahoo Finance changes their data format, the log will show `ERROR: yfinance download failed` or a symbol will show `N/A` — update `yfinance` first: `pip3 install --upgrade yfinance`
 
 ---
 
@@ -173,8 +177,8 @@ launchctl unload -w \
 | Symptom | Fix |
 |---|---|
 | Log says `ERROR: WEBHOOK_URL not set` | Edit `market-update.sh` and replace the placeholder |
-| Log says `ERROR: quote fetch failed` | Check internet. Run the curl request manually: `curl -fsSL "https://query1.finance.yahoo.com/v7/finance/quote?symbols=AAPL"` |
-| Log says `ERROR: empty quote result` | Yahoo Finance crumb may have expired mid-run (rare). Re-run manually |
+| Log says `ERROR: yfinance download failed` | Check internet. Try `python3 -c "import yfinance as yf; print(yf.download('AAPL', period='2d', progress=False))"` |
+| Log says `ERROR: yfinance not installed` | Run `pip3 install yfinance` |
 | One symbol shows `N/A` | That symbol may have changed ticker on Yahoo Finance. Check at finance.yahoo.com |
 | Job doesn't run at 8 AM | Confirm Mac timezone is Asia/Tokyo. Confirm plist is loaded: `launchctl list \| grep daily-market-update` |
 | `python3 not found` | Run `which python3`. If missing: `brew install python3` |
@@ -183,4 +187,4 @@ launchctl unload -w \
 
 ## No LLM calls
 
-This script makes no AI model calls. Data processing is pure Python (`urllib`, `json`, `http.cookiejar`). This is consistent with the repo policy documented in `CLAUDE.md`.
+This script makes no AI model calls. Data processing is pure Python (`yfinance`, `json`). This is consistent with the repo policy documented in `CLAUDE.md`.
