@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.openclaw.power-on-newsletter.plist
+  Install to: ~/Library/LaunchAgents/com.openclaw.power-on-newsletter.plist
+  Runs power-on-newsletter.sh at 00:00 every Monday local time
+  (set Mac timezone to Asia/Tokyo for JST).
+
+  The script may sleep up to 60 minutes waiting for the newsletter, so
+  it can run until ~01:00. launchd will not fire again until next Monday.
+
+  launchd catches up missed jobs on wake — if the Mac was asleep at midnight,
+  the job runs as soon as it wakes. Use: launchctl load -w <plist path>
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.power-on-newsletter</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/openclaw/.openclaw/workspace/power-on-newsletter/power-on-newsletter.sh</string>
+  </array>
+
+  <!-- Runs at 00:00 every Monday local time. Mac must be set to Asia/Tokyo for JST. -->
+  <!-- launchd Weekday: 0=Sunday, 1=Monday, 2=Tuesday, ... -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>1</integer>
+    <key>Hour</key>
+    <integer>0</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Ensure PATH includes Homebrew python3 on Apple Silicon -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/openclaw</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/openclaw/.openclaw/logs/power-on-newsletter-launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/openclaw/.openclaw/logs/power-on-newsletter-launchd.log</string>
+
+  <!-- Do NOT run immediately on load, only on schedule -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
