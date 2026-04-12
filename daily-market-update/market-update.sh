@@ -120,33 +120,39 @@ def fmt(sym, decimals=2, prefix=""):
 
 def fmt_jpygbp():
     """JPY/GBP rate with fallback: try JPYGBP=X directly; if unavailable,
-    compute 1/GBPJPY=X. Movements are inverted correctly — if GBP/JPY rises
-    (pound strengthens), JPY/GBP falls (yen weakens), and vice-versa."""
+    compute 1/GBPJPY=X. Both paths resolve price/prev first, then share a
+    single format block — each series is fetched exactly once.
+    Note: pct change of 1/x is approximately but not exactly −1× the pct
+    change of x (the bases differ; they converge for small daily moves)."""
+    price = prev = None
+
     # Preferred: direct JPYGBP=X quote
     try:
         series = closes["JPYGBP=X"].dropna()
         if len(series) >= 2:
-            return fmt("JPYGBP=X", 6)
+            price = float(series.iloc[-1])
+            prev  = float(series.iloc[-2])
     except KeyError:
         pass
 
     # Fallback: invert GBPJPY=X
-    try:
-        series = closes["GBPJPY=X"].dropna()
-    except KeyError:
-        return "N/A"
-    if len(series) < 2:
+    if price is None:
+        try:
+            series = closes["GBPJPY=X"].dropna()
+            if len(series) >= 2:
+                g      = float(series.iloc[-1])
+                g_prev = float(series.iloc[-2])
+                if g != 0 and g_prev != 0:
+                    price = 1.0 / g
+                    prev  = 1.0 / g_prev
+        except KeyError:
+            pass
+
+    if price is None or prev is None or prev == 0:
         return "N/A"
 
-    gbpjpy_price = float(series.iloc[-1])
-    gbpjpy_prev  = float(series.iloc[-2])
-    if gbpjpy_price == 0 or gbpjpy_prev == 0:
-        return "N/A"
-
-    price  = 1.0 / gbpjpy_price
-    prev   = 1.0 / gbpjpy_prev
-    change = price - prev          # negative when GBP/JPY rises
-    pct    = (change / prev * 100) # exactly −1 × GBP/JPY pct move
+    change = price - prev
+    pct    = change / prev * 100
     arrow  = "▲" if change >= 0 else "▼"
     sign   = "+" if change >= 0 else ""
     return (
