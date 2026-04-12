@@ -68,18 +68,22 @@ log "Starting daily-market-update"
 # Monday:  FX/futures just reopened but daily bars won't close until
 #          5pm EST Monday, so yfinance would return Friday's data again —
 #          identical to Saturday's post.
+#
+# Adding a future notice day: add a case entry with NOTICE and NOTICE_LABEL.
 # ---------------------------------------------------------------------------
 DAY=$(date +%u)
-if [[ "$DAY" == "7" ]]; then
-  post_to_discord "**Market Update** — Markets closed today. Check back tomorrow." \
-    && log "Sunday: posted closed notice" \
-    || { log "ERROR: Discord webhook POST failed (closed notice)"; exit 1; }
-  exit 0
-fi
-if [[ "$DAY" == "1" ]]; then
-  post_to_discord "**Market Update** — US markets open later today (~11:30pm JST). Next full update Tuesday." \
-    && log "Monday: posted pre-open notice" \
-    || { log "ERROR: Discord webhook POST failed (pre-open notice)"; exit 1; }
+NOTICE="" NOTICE_LABEL=""
+case "$DAY" in
+  7) NOTICE="**Market Update** — Markets closed today. Check back tomorrow."
+     NOTICE_LABEL="Sunday" ;;
+  1) NOTICE="**Market Update** — US markets open later today (~11:30pm JST). Next full update Tuesday."
+     NOTICE_LABEL="Monday" ;;
+esac
+
+if [[ -n "$NOTICE" ]]; then
+  post_to_discord "$NOTICE" \
+    && log "$NOTICE_LABEL: posted notice" \
+    || { log "ERROR: Discord webhook POST failed ($NOTICE_LABEL notice)"; exit 1; }
   exit 0
 fi
 
@@ -135,11 +139,25 @@ if data.empty:
     print("ERROR: yfinance returned no data", file=sys.stderr)
     sys.exit(1)
 
+# data["Close"] is a DataFrame with tickers as columns (multi-ticker download)
 try:
     closes = data["Close"]
 except KeyError:
     print("ERROR: no Close column in yfinance result", file=sys.stderr)
     sys.exit(1)
+
+# Reference date: most recent close among FX symbols, which trade every
+# weekday. Used to detect per-instrument market closures (e.g. a US holiday
+# closes equities but not FX or commodity futures).
+_fx_dates = []
+for _sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
+    try:
+        _s = closes[_sym].dropna()
+        if len(_s):
+            _fx_dates.append(_s.index[-1].date())
+    except (KeyError, AttributeError):
+        pass
+ref_date = max(_fx_dates) if _fx_dates else None
 
 def _render(price, prev, decimals, prefix=""):
     """Shared formatter used by fmt() and fmt_jpygbp()."""
@@ -153,13 +171,16 @@ def _render(price, prev, decimals, prefix=""):
     )
 
 def fmt(sym, decimals=2, prefix=""):
-    """Format a standard quote: look up sym in closes and render."""
+    """Format a standard quote. Returns 'market closed' when the symbol's
+    last data date lags the FX reference date (holiday closure)."""
     try:
         series = closes[sym].dropna()
     except KeyError:
         return "N/A"
     if len(series) < 2:
         return "N/A"
+    if ref_date and series.index[-1].date() < ref_date:
+        return "market closed"
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
 
 def fmt_jpygbp():
