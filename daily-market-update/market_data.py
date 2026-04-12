@@ -163,7 +163,7 @@ def build_message(closes, today=None):
         "",
         "**Commodities**",
         f"• Gold ($/oz):         {fmt(closes, ref_date, 'GC=F', prefix='$')}",
-        f"• Silver ($/oz):       {fmt(closes, ref_date, 'SI=F', 3, '$')}",
+        f"• Silver ($/oz):       {fmt(closes, ref_date, 'SI=F', 3, prefix='$')}",
         f"• WTI Crude ($/bbl):   {fmt(closes, ref_date, 'CL=F', prefix='$')}",
         "",
         "_Change vs prior close_",

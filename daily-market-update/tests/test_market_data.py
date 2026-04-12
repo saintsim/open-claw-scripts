@@ -222,7 +222,7 @@ class TestFetchCloses:
         mock_yf = self._mock_yf()
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
             market_data.fetch_closes()
-        _, kwargs = mock_yf.download.call_args
+        kwargs = mock_yf.download.call_args.kwargs
         assert kwargs["period"] == "5d"
         assert kwargs["interval"] == "1d"
 
@@ -230,7 +230,7 @@ class TestFetchCloses:
         mock_yf = self._mock_yf()
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
             market_data.fetch_closes()
-        _, kwargs = mock_yf.download.call_args
+        kwargs = mock_yf.download.call_args.kwargs
         for sym in ("JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL",
                     "^GSPC", "GC=F", "SI=F", "CL=F"):
             assert sym in kwargs["tickers"]
