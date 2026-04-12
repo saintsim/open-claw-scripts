@@ -25,12 +25,11 @@ WEBHOOK_URL="REPLACE_WITH_YOUR_DISCORD_WEBHOOK_URL"
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="${HOME}/.openclaw/logs/power-on-newsletter.log"
-STATE_FILE="${HOME}/.openclaw/data/power-on-newsletter-last-seen.txt"
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$STATE_FILE")"
+mkdir -p "${HOME}/.openclaw/logs" "${HOME}/.openclaw/data"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
@@ -65,25 +64,22 @@ print(json.dumps({'content': sys.argv[1]}))
 }
 
 # ---------------------------------------------------------------------------
-# fetch_newsletter
-# Calls newsletter_fetcher.py; captures stdout (JSON) and propagates the
-# exit code without triggering set -e (handled by the caller).
-# ---------------------------------------------------------------------------
-fetch_newsletter() {
-  python3 "${SCRIPT_DIR}/newsletter_fetcher.py"
-}
-
-# ---------------------------------------------------------------------------
 # try_fetch_and_post
-# Attempt a single fetch. Returns:
-#   0 — newsletter found and posted (caller should exit)
-#   1 — newsletter already seen or not in feed (caller should retry/give up)
-#   2 — hard error (caller should exit 1)
+# Runs newsletter_fetcher.py and, if a new newsletter is found, posts it
+# to Discord and persists the seen article ID.
+#
+# Returns:
+#   0 — newsletter found and posted successfully
+#   1 — no new newsletter (not in feed, or already seen); caller should retry
+#   2 — hard error; caller should exit 1
+#
+# Note: newsletter_fetcher.py exit codes (0=new, 1=error, 2=not-found) are
+# remapped so that 0 always means success and non-zero signals the problem.
 # ---------------------------------------------------------------------------
 try_fetch_and_post() {
   local result=""
   local fetch_exit=0
-  result=$(fetch_newsletter) || fetch_exit=$?
+  result=$(python3 "${SCRIPT_DIR}/newsletter_fetcher.py") || fetch_exit=$?
 
   if [[ $fetch_exit -eq 1 ]]; then
     log "ERROR: newsletter_fetcher.py failed (fetch/parse error)"
@@ -95,12 +91,24 @@ try_fetch_and_post() {
     return 1
   fi
 
-  # Exit code 0 — parse the JSON result
-  local archive_url date_human headline article_id
-  archive_url=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['archive_url'])" "$result")
-  date_human=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['date_human'])" "$result")
-  headline=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['headline'])" "$result")
-  article_id=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['article_id'])" "$result")
+  # Exit code 0 — parse all fields from the JSON result in a single python3
+  # invocation to avoid spawning four separate interpreter processes.
+  local archive_url date_human headline article_id state_file
+  {
+    IFS= read -r archive_url
+    IFS= read -r date_human
+    IFS= read -r headline
+    IFS= read -r article_id
+    IFS= read -r state_file
+  } < <(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+print(d['archive_url'])
+print(d['date_human'])
+print(d['headline'])
+print(d['article_id'])
+print(d['state_file'])
+" "$result")
 
   log "New newsletter found: ${date_human:-unknown date} — ${headline}"
   log "Archive URL: ${archive_url}"
@@ -120,8 +128,9 @@ ${archive_url}"
     && log "Posted to Discord" \
     || { log "ERROR: Webhook POST failed"; return 2; }
 
-  # Persist the seen article ID only after a successful Discord post
-  echo "$article_id" > "$STATE_FILE"
+  # Persist the seen article ID only after a successful Discord post.
+  # The state file path comes from newsletter_fetcher.py (single source of truth).
+  echo "$article_id" > "$state_file"
   log "Saved last-seen article ID"
 
   return 0
@@ -132,9 +141,9 @@ ${archive_url}"
 # ---------------------------------------------------------------------------
 log "Starting power-on-newsletter"
 
-# First attempt
-try_fetch_and_post
-attempt_result=$?
+# First attempt — use || to capture the return code without triggering set -e
+attempt_result=0
+try_fetch_and_post || attempt_result=$?
 
 if [[ $attempt_result -eq 2 ]]; then
   log "Exiting due to error"
@@ -152,8 +161,8 @@ log "Waiting 60 minutes before retry"
 sleep 3600
 
 log "Retrying fetch"
-try_fetch_and_post
-attempt_result=$?
+attempt_result=0
+try_fetch_and_post || attempt_result=$?
 
 if [[ $attempt_result -eq 2 ]]; then
   log "Exiting due to error on retry"

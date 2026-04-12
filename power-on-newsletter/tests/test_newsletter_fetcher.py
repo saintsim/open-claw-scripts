@@ -8,9 +8,8 @@ No internet access required — all network calls are mocked.
 """
 
 import json
-import os
-import sys
 from unittest.mock import MagicMock, patch
+from urllib.error import URLError
 
 import pytest
 
@@ -77,6 +76,11 @@ def _make_mock_response(content: str) -> MagicMock:
     mock_resp.__exit__ = MagicMock(return_value=False)
     mock_resp.read.return_value = content.encode("utf-8")
     return mock_resp
+
+
+def _patch_fetch(xml: str):
+    """Patch newsletter_fetcher.urlopen to return the given XML content."""
+    return patch("newsletter_fetcher.urlopen", return_value=_make_mock_response(xml))
 
 
 # ---------------------------------------------------------------------------
@@ -167,25 +171,6 @@ class TestCleanUrl:
 
 
 # ---------------------------------------------------------------------------
-# extract_article_id
-# ---------------------------------------------------------------------------
-
-class TestExtractArticleId:
-    def test_returns_url_path(self):
-        result = newsletter_fetcher.extract_article_id(_SAMPLE_LINK)
-        assert result == _SAMPLE_ARTICLE_ID
-
-    def test_strips_trailing_slash(self):
-        result = newsletter_fetcher.extract_article_id(_SAMPLE_LINK + "/")
-        assert not result.endswith("/")
-
-    def test_different_slugs_give_different_ids(self):
-        url_a = "https://www.bloomberg.com/news/newsletters/2026-04-12/article-a"
-        url_b = "https://www.bloomberg.com/news/newsletters/2026-04-05/article-b"
-        assert newsletter_fetcher.extract_article_id(url_a) != newsletter_fetcher.extract_article_id(url_b)
-
-
-# ---------------------------------------------------------------------------
 # extract_date
 # ---------------------------------------------------------------------------
 
@@ -254,22 +239,20 @@ class TestLoadLastSeen:
 
 
 # ---------------------------------------------------------------------------
-# fetch_feed — mocks urllib.request.urlopen
+# fetch_feed — mocks newsletter_fetcher.urlopen
 # ---------------------------------------------------------------------------
 
 class TestFetchFeed:
     def test_returns_feed_content(self):
         xml = _make_rss(_NEWSLETTER_ITEM)
-        mock_resp = _make_mock_response(xml)
-        with patch("newsletter_fetcher.urlopen", return_value=mock_resp):
+        with _patch_fetch(xml):
             result = newsletter_fetcher.fetch_feed("http://example.com/feed.rss")
         assert "<rss" in result
         assert _SAMPLE_TITLE in result
 
     def test_sends_user_agent_header(self):
         xml = _make_rss(_NEWSLETTER_ITEM)
-        mock_resp = _make_mock_response(xml)
-        with patch("newsletter_fetcher.urlopen", return_value=mock_resp) as mock_open:
+        with _patch_fetch(xml) as mock_open:
             newsletter_fetcher.fetch_feed("http://example.com/feed.rss")
         request_obj = mock_open.call_args[0][0]
         # urllib.request.Request stores headers title-cased (e.g. "User-agent")
@@ -277,7 +260,6 @@ class TestFetchFeed:
         assert "user-agent" in header_keys_lower
 
     def test_raises_url_error_on_network_failure(self):
-        from urllib.error import URLError
         with patch("newsletter_fetcher.urlopen", side_effect=URLError("connection refused")):
             with pytest.raises(URLError):
                 newsletter_fetcher.fetch_feed("http://example.com/feed.rss")
@@ -290,65 +272,29 @@ class TestFetchFeed:
 class TestMainNewNewsletter:
     """main() exits 0 and prints JSON when a new newsletter is found."""
 
-    def _patch_fetch(self, xml: str):
-        return patch("newsletter_fetcher.urlopen", return_value=_make_mock_response(xml))
-
-    def test_prints_valid_json(self, tmp_path, capsys):
+    def test_json_output_fields(self, tmp_path, capsys):
+        """All expected JSON fields are present and correctly populated."""
         xml = _make_rss(_NEWSLETTER_ITEM)
         state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
-            newsletter_fetcher.main()
-        out = capsys.readouterr().out
-        data = json.loads(out)
-        assert "archive_url" in data
-
-    def test_archive_url_starts_with_archive_md(self, tmp_path, capsys):
-        xml = _make_rss(_NEWSLETTER_ITEM)
-        state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
+        with _patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
             newsletter_fetcher.main()
         data = json.loads(capsys.readouterr().out)
+
         assert data["archive_url"].startswith("https://archive.md/https://")
-
-    def test_query_string_stripped_from_archive_url(self, tmp_path, capsys):
-        xml = _make_rss(_NEWSLETTER_ITEM)
-        state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
-            newsletter_fetcher.main()
-        data = json.loads(capsys.readouterr().out)
         assert "?" not in data["archive_url"]
         assert "srnd" not in data["archive_url"]
-
-    def test_headline_extracted(self, tmp_path, capsys):
-        xml = _make_rss(_NEWSLETTER_ITEM)
-        state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
-            newsletter_fetcher.main()
-        data = json.loads(capsys.readouterr().out)
         assert data["headline"] == _SAMPLE_TITLE
-
-    def test_date_extracted(self, tmp_path, capsys):
-        xml = _make_rss(_NEWSLETTER_ITEM)
-        state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
-            newsletter_fetcher.main()
-        data = json.loads(capsys.readouterr().out)
         assert data["date"] == "2026-04-12"
-
-    def test_date_human_formatted(self, tmp_path, capsys):
-        xml = _make_rss(_NEWSLETTER_ITEM)
-        state_file = str(tmp_path / "last-seen.txt")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
-            newsletter_fetcher.main()
-        data = json.loads(capsys.readouterr().out)
         assert data["date_human"] == "12 April 2026"
+        assert data["article_id"] == _SAMPLE_ARTICLE_ID
+        assert data["state_file"] == state_file  # emits the patched path verbatim
 
     def test_exits_2_when_article_already_seen(self, tmp_path):
         xml = _make_rss(_NEWSLETTER_ITEM)
         state_file = str(tmp_path / "last-seen.txt")
         with open(state_file, "w") as f:
             f.write(_SAMPLE_ARTICLE_ID + "\n")
-        with self._patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
+        with _patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
             with pytest.raises(SystemExit) as exc:
                 newsletter_fetcher.main()
         assert exc.value.code == 2
@@ -360,9 +306,7 @@ class TestMainNoNewsletter:
     def test_exits_2_when_feed_has_no_newsletter(self, tmp_path):
         xml = _make_rss(_NON_NEWSLETTER_ITEM)
         state_file = str(tmp_path / "last-seen.txt")
-        mock_resp = _make_mock_response(xml)
-        with patch("newsletter_fetcher.urlopen", return_value=mock_resp), \
-             patch.object(newsletter_fetcher, "STATE_FILE", state_file):
+        with _patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
             with pytest.raises(SystemExit) as exc:
                 newsletter_fetcher.main()
         assert exc.value.code == 2
@@ -370,9 +314,7 @@ class TestMainNoNewsletter:
     def test_exits_2_on_empty_feed(self, tmp_path):
         xml = _make_rss()
         state_file = str(tmp_path / "last-seen.txt")
-        mock_resp = _make_mock_response(xml)
-        with patch("newsletter_fetcher.urlopen", return_value=mock_resp), \
-             patch.object(newsletter_fetcher, "STATE_FILE", state_file):
+        with _patch_fetch(xml), patch.object(newsletter_fetcher, "STATE_FILE", state_file):
             with pytest.raises(SystemExit) as exc:
                 newsletter_fetcher.main()
         assert exc.value.code == 2
@@ -382,7 +324,6 @@ class TestMainFetchError:
     """main() exits 1 on network or unexpected errors."""
 
     def test_exits_1_on_url_error(self, tmp_path):
-        from urllib.error import URLError
         state_file = str(tmp_path / "last-seen.txt")
         with patch("newsletter_fetcher.urlopen", side_effect=URLError("connection refused")), \
              patch.object(newsletter_fetcher, "STATE_FILE", state_file):

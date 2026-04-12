@@ -96,16 +96,6 @@ def clean_url(url: str) -> str:
     return urlunparse(parsed._replace(query="", fragment=""))
 
 
-def extract_article_id(url: str) -> str:
-    """Return a stable deduplication key derived from the URL path.
-
-    Uses the cleaned path (no query string, no trailing slash) so that
-    any future slug change is treated as a new article.
-    """
-    parsed = urlparse(url)
-    return parsed.path.rstrip("/")
-
-
 def extract_date(url: str) -> str:
     """Extract the publication date from a Bloomberg newsletter URL.
 
@@ -164,27 +154,23 @@ def main() -> None:
         # No newsletter item in feed — caller will retry or give up
         sys.exit(2)
 
-    raw_url = item["link"]
-    clean = clean_url(raw_url)
-    article_id = extract_article_id(clean)
+    cleaned_url = clean_url(item["link"])
+    article_id = urlparse(cleaned_url).path.rstrip("/")
 
     last_seen = load_last_seen(STATE_FILE)
     if article_id == last_seen:
         # Same article as last run — nothing new
         sys.exit(2)
 
-    date_str = extract_date(clean)
-    date_human = format_date(date_str)
-    headline = item["title"]
-    archive_url = f"https://archive.md/{clean}"
-
+    date_str = extract_date(cleaned_url)
     result = {
-        "archive_url": archive_url,
-        "bloomberg_url": clean,
+        "archive_url": f"https://archive.md/{cleaned_url}",
         "article_id": article_id,
         "date": date_str,
-        "date_human": date_human,
-        "headline": headline,
+        "date_human": format_date(date_str),
+        "headline": item["title"],
+        # Emitted so the bash caller never needs to hardcode this path
+        "state_file": STATE_FILE,
     }
     print(json.dumps(result))
 
