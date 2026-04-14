@@ -107,21 +107,27 @@ def fmt(closes, ref_date, sym, decimals=2, prefix=""):
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
 
 
-def fmt_jpygbp(closes):
+def fmt_jpygbp(closes, ref_date):
     """Format the JPY/GBP rate with a fallback to 1/GBPJPY=X.
 
-    Tries JPYGBP=X directly; if unavailable (e.g. Yahoo Finance doesn't
-    publish it), inverts GBPJPY=X.  Note: the pct change of 1/x is
-    approximately but not exactly −1× the pct change of x (the bases
-    differ; they converge for small daily moves).
+    Applies the same staleness check as fmt(): if JPYGBP=X lags ref_date,
+    falls back to GBPJPY=X rather than showing a pre-holiday rate alongside
+    a current USD/JPY.  If both sources lag ref_date, returns 'market closed'.
+
+    Note: the pct change of 1/x is approximately but not exactly −1× the pct
+    change of x (the bases differ; they converge for small daily moves).
     """
     price = prev = None
+    any_stale = False
 
     # Preferred: direct JPYGBP=X quote
     try:
         series = closes["JPYGBP=X"].dropna()
         if len(series) >= 2:
-            price, prev = float(series.iloc[-1]), float(series.iloc[-2])
+            if ref_date is not None and series.index[-1].date() < ref_date:
+                any_stale = True
+            else:
+                price, prev = float(series.iloc[-1]), float(series.iloc[-2])
     except KeyError:
         pass
 
@@ -130,14 +136,17 @@ def fmt_jpygbp(closes):
         try:
             series = closes["GBPJPY=X"].dropna()
             if len(series) >= 2:
-                g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
-                if g != 0 and g_prev != 0:
-                    price, prev = 1.0 / g, 1.0 / g_prev
+                if ref_date is not None and series.index[-1].date() < ref_date:
+                    any_stale = True
+                else:
+                    g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
+                    if g != 0 and g_prev != 0:
+                        price, prev = 1.0 / g, 1.0 / g_prev
         except KeyError:
             pass
 
     if price is None or prev is None:
-        return "N/A"
+        return "market closed" if any_stale else "N/A"
     return _render(price, prev, 6)
 
 
@@ -164,7 +173,7 @@ def build_message(closes, today=None):
         f"**Market Update — {today}**",
         "",
         "**FX**",
-        f"• JPY/GBP:  {fmt_jpygbp(closes)}",
+        f"• JPY/GBP:  {fmt_jpygbp(closes, ref_date)}",
         f"• USD/JPY:  {fmt(closes, ref_date, 'USDJPY=X')}",
         "",
         "**Equities**",

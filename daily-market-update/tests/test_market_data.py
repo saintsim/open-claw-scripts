@@ -214,6 +214,35 @@ class TestJpyGbpFallback:
         jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
         assert "N/A" in jpy_line
 
+    def test_falls_back_to_gbpjpy_when_jpygbp_stale(self):
+        """When JPYGBP=X is stale (last date < ref_date), falls back to GBPJPY=X.
+
+        Scenario: JPYGBP=X has no data on the last date (holiday for that
+        instrument) but GBPJPY=X is current — should show the GBPJPY inverse
+        rather than a pre-holiday JPYGBP=X rate.
+        """
+        closes = _MOCK_CLOSES.copy()
+        closes.loc[_DATES[-1], "JPYGBP=X"] = float("nan")
+        msg = market_data.build_message(closes, today=_TODAY)
+        jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
+        # GBPJPY=X last = 193.40, so 1/193.40 ≈ 0.005170
+        assert "market closed" not in jpy_line
+        assert "N/A" not in jpy_line
+        assert "0.005" in jpy_line
+
+    def test_market_closed_when_both_jpygbp_sources_stale(self):
+        """Returns 'market closed' when both JPYGBP=X and GBPJPY=X are stale.
+
+        Both sources have NaN on the last date, making their last available
+        date (April 10) lag the ref_date (April 11 from USD/JPY).
+        """
+        closes = _MOCK_CLOSES.copy()
+        closes.loc[_DATES[-1], "JPYGBP=X"] = float("nan")
+        closes.loc[_DATES[-1], "GBPJPY=X"] = float("nan")
+        msg = market_data.build_message(closes, today=_TODAY)
+        jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
+        assert "market closed" in jpy_line
+
 
 # ---------------------------------------------------------------------------
 # Holiday / market-closed detection
