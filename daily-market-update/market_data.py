@@ -8,7 +8,7 @@
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
@@ -72,7 +72,10 @@ def _compute_ref_date(closes):
                 dates.append(s.index[-1].date())
         except (KeyError, AttributeError):
             pass
-    return max(dates) if dates else None
+    # Fall back to yesterday if no FX data is available (yfinance gap or
+    # a global FX closure). Using yesterday ensures holiday detection stays
+    # active — it does not assume FX absence implies equities are also closed.
+    return max(dates) if dates else date.today() - timedelta(days=1)
 
 
 def _render(price, prev, decimals, prefix=""):

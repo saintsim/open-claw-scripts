@@ -88,10 +88,14 @@ class TestComputeRefDate:
         )
         assert market_data._compute_ref_date(closes) == yesterday
 
-    def test_returns_none_when_no_fx_data(self):
-        """Returns None when all FX symbols are NaN (e.g. missing from download)."""
+    def test_falls_back_to_yesterday_when_no_fx_data(self):
+        """Falls back to yesterday when all FX symbols are NaN.
+
+        This ensures holiday detection remains active even if yfinance has a
+        data gap for FX — it does not assume FX absence means equities closed.
+        """
         closes = pd.DataFrame({"USDJPY=X": [float("nan")] * 5}, index=_DATES)
-        assert market_data._compute_ref_date(closes) is None
+        assert market_data._compute_ref_date(closes) == date.today() - timedelta(days=1)
 
 
 # ---------------------------------------------------------------------------
