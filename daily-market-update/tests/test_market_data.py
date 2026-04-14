@@ -9,6 +9,7 @@ The yfinance network call is mocked throughout — no internet required.
 """
 
 import sys
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -52,6 +53,45 @@ def _make_download_mock(closes=None):
     mock.empty = False
     mock.__getitem__ = MagicMock(return_value=closes)
     return mock
+
+
+# ---------------------------------------------------------------------------
+# _compute_ref_date — partial intra-day bar filtering
+# ---------------------------------------------------------------------------
+
+class TestComputeRefDate:
+    def test_excludes_partial_intraday_bar_dated_today(self):
+        """A FX bar dated today (partial Asian session at 08:00 JST) is excluded.
+
+        Without filtering, ref_date would equal today, making all US instruments
+        (whose last close is yesterday) falsely show 'market closed'.
+        """
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        two_days_ago = today - timedelta(days=2)
+        dates = pd.to_datetime([two_days_ago, yesterday, today])
+        closes = pd.DataFrame(
+            {"USDJPY=X": [149.0, 149.8, 150.1]},
+            index=dates,
+        )
+        assert market_data._compute_ref_date(closes) == yesterday
+
+    def test_uses_completed_bar_when_no_intraday(self):
+        """When the last FX bar is from yesterday, it is used as-is."""
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        two_days_ago = today - timedelta(days=2)
+        dates = pd.to_datetime([two_days_ago, yesterday])
+        closes = pd.DataFrame(
+            {"USDJPY=X": [149.0, 149.8]},
+            index=dates,
+        )
+        assert market_data._compute_ref_date(closes) == yesterday
+
+    def test_returns_none_when_no_fx_data(self):
+        """Returns None when all FX symbols are NaN (e.g. missing from download)."""
+        closes = pd.DataFrame({"USDJPY=X": [float("nan")] * 5}, index=_DATES)
+        assert market_data._compute_ref_date(closes) is None
 
 
 # ---------------------------------------------------------------------------

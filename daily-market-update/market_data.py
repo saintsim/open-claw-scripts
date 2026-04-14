@@ -8,7 +8,7 @@
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
 import sys
-from datetime import datetime
+from datetime import date, datetime
 
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
@@ -50,16 +50,24 @@ def fetch_closes():
 
 
 def _compute_ref_date(closes):
-    """Return the most recent close date among FX symbols.
+    """Return the most recent *completed* close date among FX symbols.
 
     FX trades every weekday, so this date is used as a reference to detect
     per-instrument market closures (e.g. a US holiday closes equities but
     not FX or commodity futures).
+
+    Dates on or after today are excluded: at 08:00 JST, yfinance may include
+    a partial Asian-session bar for the current calendar day while US
+    instruments only have yesterday's completed close.  Without this filter,
+    the partial FX bar causes all US symbols to be falsely flagged as
+    'market closed'.
     """
+    today_str = date.today().isoformat()
     dates = []
     for sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
         try:
             s = closes[sym].dropna()
+            s = s[s.index < today_str]  # exclude partial intra-day bars
             if len(s):
                 dates.append(s.index[-1].date())
         except (KeyError, AttributeError):
