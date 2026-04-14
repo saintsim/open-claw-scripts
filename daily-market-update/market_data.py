@@ -8,7 +8,7 @@
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
 import sys
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
@@ -50,21 +50,32 @@ def fetch_closes():
 
 
 def _compute_ref_date(closes):
-    """Return the most recent close date among FX symbols.
+    """Return the most recent *completed* close date among FX symbols.
 
     FX trades every weekday, so this date is used as a reference to detect
     per-instrument market closures (e.g. a US holiday closes equities but
     not FX or commodity futures).
+
+    Dates on or after today are excluded: at 08:00 JST, yfinance may include
+    a partial Asian-session bar for the current calendar day while US
+    instruments only have yesterday's completed close.  Without this filter,
+    the partial FX bar causes all US symbols to be falsely flagged as
+    'market closed'.
     """
+    today_str = date.today().isoformat()
     dates = []
     for sym in ["USDJPY=X", "JPYGBP=X", "GBPJPY=X"]:
         try:
             s = closes[sym].dropna()
+            s = s[s.index < today_str]  # exclude partial intra-day bars
             if len(s):
                 dates.append(s.index[-1].date())
         except (KeyError, AttributeError):
             pass
-    return max(dates) if dates else None
+    # Fall back to yesterday if no FX data is available (yfinance gap or
+    # a global FX closure). Using yesterday ensures holiday detection stays
+    # active — it does not assume FX absence implies equities are also closed.
+    return max(dates) if dates else date.today() - timedelta(days=1)
 
 
 def _render(price, prev, decimals, prefix=""):
@@ -96,21 +107,27 @@ def fmt(closes, ref_date, sym, decimals=2, prefix=""):
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
 
 
-def fmt_jpygbp(closes):
+def fmt_jpygbp(closes, ref_date):
     """Format the JPY/GBP rate with a fallback to 1/GBPJPY=X.
 
-    Tries JPYGBP=X directly; if unavailable (e.g. Yahoo Finance doesn't
-    publish it), inverts GBPJPY=X.  Note: the pct change of 1/x is
-    approximately but not exactly −1× the pct change of x (the bases
-    differ; they converge for small daily moves).
+    Applies the same staleness check as fmt(): if JPYGBP=X lags ref_date,
+    falls back to GBPJPY=X rather than showing a pre-holiday rate alongside
+    a current USD/JPY.  If both sources lag ref_date, returns 'market closed'.
+
+    Note: the pct change of 1/x is approximately but not exactly −1× the pct
+    change of x (the bases differ; they converge for small daily moves).
     """
     price = prev = None
+    any_stale = False
 
     # Preferred: direct JPYGBP=X quote
     try:
         series = closes["JPYGBP=X"].dropna()
         if len(series) >= 2:
-            price, prev = float(series.iloc[-1]), float(series.iloc[-2])
+            if ref_date is not None and series.index[-1].date() < ref_date:
+                any_stale = True
+            else:
+                price, prev = float(series.iloc[-1]), float(series.iloc[-2])
     except KeyError:
         pass
 
@@ -119,14 +136,17 @@ def fmt_jpygbp(closes):
         try:
             series = closes["GBPJPY=X"].dropna()
             if len(series) >= 2:
-                g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
-                if g != 0 and g_prev != 0:
-                    price, prev = 1.0 / g, 1.0 / g_prev
+                if ref_date is not None and series.index[-1].date() < ref_date:
+                    any_stale = True
+                else:
+                    g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
+                    if g != 0 and g_prev != 0:
+                        price, prev = 1.0 / g, 1.0 / g_prev
         except KeyError:
             pass
 
     if price is None or prev is None:
-        return "N/A"
+        return "market closed" if any_stale else "N/A"
     return _render(price, prev, 6)
 
 
@@ -153,7 +173,7 @@ def build_message(closes, today=None):
         f"**Market Update — {today}**",
         "",
         "**FX**",
-        f"• JPY/GBP:  {fmt_jpygbp(closes)}",
+        f"• JPY/GBP:  {fmt_jpygbp(closes, ref_date)}",
         f"• USD/JPY:  {fmt(closes, ref_date, 'USDJPY=X')}",
         "",
         "**Equities**",

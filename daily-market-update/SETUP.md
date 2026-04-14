@@ -170,6 +170,8 @@ launchctl unload -w \
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
 - If Yahoo Finance changes their data format, the log will show `ERROR: yfinance download failed` or a symbol will show `N/A` — update `yfinance` first: `pip3 install --upgrade yfinance`
 - **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday posts "Markets closed today. Check back tomorrow." Monday posts "US markets open later today (~11:30pm JST). Next full update Tuesday." Both Sunday and Monday skip the yfinance fetch entirely — on Monday, FX/futures have technically reopened but daily bars won't close until 5pm EST, so yfinance would just return Friday's data again (identical to Saturday's post).
+- **US market holidays (Tue–Sat runs)**: if a US holiday closed equities or commodity futures the previous day but FX still traded (e.g. Thanksgiving, Memorial Day, Good Friday), the affected instruments show "market closed" and FX shows the live Asian-session price. This is detected automatically by comparing each symbol's last close date against the FX reference date.
+- **Global FX holidays (Christmas Day, New Year's Day)**: when FX and all markets are simultaneously closed, `_compute_ref_date` falls back to yesterday. Since all instruments share the same last close date (the day before the holiday), no "market closed" labels are shown — which is correct. The update will display the last available prices with no explicit holiday notice.
 
 ---
 

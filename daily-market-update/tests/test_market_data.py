@@ -9,6 +9,7 @@ The yfinance network call is mocked throughout — no internet required.
 """
 
 import sys
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -52,6 +53,49 @@ def _make_download_mock(closes=None):
     mock.empty = False
     mock.__getitem__ = MagicMock(return_value=closes)
     return mock
+
+
+# ---------------------------------------------------------------------------
+# _compute_ref_date — partial intra-day bar filtering
+# ---------------------------------------------------------------------------
+
+class TestComputeRefDate:
+    def test_excludes_partial_intraday_bar_dated_today(self):
+        """A FX bar dated today (partial Asian session at 08:00 JST) is excluded.
+
+        Without filtering, ref_date would equal today, making all US instruments
+        (whose last close is yesterday) falsely show 'market closed'.
+        """
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        two_days_ago = today - timedelta(days=2)
+        dates = pd.to_datetime([two_days_ago, yesterday, today])
+        closes = pd.DataFrame(
+            {"USDJPY=X": [149.0, 149.8, 150.1]},
+            index=dates,
+        )
+        assert market_data._compute_ref_date(closes) == yesterday
+
+    def test_uses_completed_bar_when_no_intraday(self):
+        """When the last FX bar is from yesterday, it is used as-is."""
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        two_days_ago = today - timedelta(days=2)
+        dates = pd.to_datetime([two_days_ago, yesterday])
+        closes = pd.DataFrame(
+            {"USDJPY=X": [149.0, 149.8]},
+            index=dates,
+        )
+        assert market_data._compute_ref_date(closes) == yesterday
+
+    def test_falls_back_to_yesterday_when_no_fx_data(self):
+        """Falls back to yesterday when all FX symbols are NaN.
+
+        This ensures holiday detection remains active even if yfinance has a
+        data gap for FX — it does not assume FX absence means equities closed.
+        """
+        closes = pd.DataFrame({"USDJPY=X": [float("nan")] * 5}, index=_DATES)
+        assert market_data._compute_ref_date(closes) == date.today() - timedelta(days=1)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +213,35 @@ class TestJpyGbpFallback:
         msg = market_data.build_message(closes, today=_TODAY)
         jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
         assert "N/A" in jpy_line
+
+    def test_falls_back_to_gbpjpy_when_jpygbp_stale(self):
+        """When JPYGBP=X is stale (last date < ref_date), falls back to GBPJPY=X.
+
+        Scenario: JPYGBP=X has no data on the last date (holiday for that
+        instrument) but GBPJPY=X is current — should show the GBPJPY inverse
+        rather than a pre-holiday JPYGBP=X rate.
+        """
+        closes = _MOCK_CLOSES.copy()
+        closes.loc[_DATES[-1], "JPYGBP=X"] = float("nan")
+        msg = market_data.build_message(closes, today=_TODAY)
+        jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
+        # GBPJPY=X last = 193.40, so 1/193.40 ≈ 0.005170
+        assert "market closed" not in jpy_line
+        assert "N/A" not in jpy_line
+        assert "0.005" in jpy_line
+
+    def test_market_closed_when_both_jpygbp_sources_stale(self):
+        """Returns 'market closed' when both JPYGBP=X and GBPJPY=X are stale.
+
+        Both sources have NaN on the last date, making their last available
+        date (April 10) lag the ref_date (April 11 from USD/JPY).
+        """
+        closes = _MOCK_CLOSES.copy()
+        closes.loc[_DATES[-1], "JPYGBP=X"] = float("nan")
+        closes.loc[_DATES[-1], "GBPJPY=X"] = float("nan")
+        msg = market_data.build_message(closes, today=_TODAY)
+        jpy_line = next(l for l in msg.splitlines() if "JPY/GBP" in l)
+        assert "market closed" in jpy_line
 
 
 # ---------------------------------------------------------------------------
