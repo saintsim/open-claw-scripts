@@ -299,6 +299,13 @@ class TestFetchCloses:
         assert kwargs["period"] == "5d"
         assert kwargs["interval"] == "1d"
 
+    def test_download_called_with_timeout(self):
+        mock_yf = self._mock_yf()
+        with patch.dict(sys.modules, {"yfinance": mock_yf}):
+            market_data.fetch_closes()
+        kwargs = mock_yf.download.call_args.kwargs
+        assert kwargs["timeout"] == market_data._DOWNLOAD_TIMEOUT
+
     def test_download_called_with_all_symbols(self):
         mock_yf = self._mock_yf()
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
@@ -315,9 +322,23 @@ class TestFetchCloses:
             with pytest.raises(SystemExit):
                 market_data.fetch_closes()
 
+    def test_retries_once_on_transient_failure(self):
+        """Succeeds on the second attempt after a transient network error."""
+        mock_yf = MagicMock()
+        mock_yf.download.side_effect = [Exception("timeout"), _make_download_mock()]
+        with patch.dict(sys.modules, {"yfinance": mock_yf}):
+            with patch("time.sleep") as mock_sleep:
+                closes = market_data.fetch_closes()
+        assert closes is _MOCK_CLOSES
+        assert mock_yf.download.call_count == 2
+        mock_sleep.assert_called_once_with(5)
+
     def test_exits_on_download_exception(self):
+        """Exits after all retry attempts are exhausted."""
         mock_yf = MagicMock()
         mock_yf.download.side_effect = Exception("network error")
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
-            with pytest.raises(SystemExit):
-                market_data.fetch_closes()
+            with patch("time.sleep"):
+                with pytest.raises(SystemExit):
+                    market_data.fetch_closes()
+        assert mock_yf.download.call_count == market_data._DOWNLOAD_RETRIES

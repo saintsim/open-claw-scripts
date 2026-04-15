@@ -8,14 +8,23 @@
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
 import sys
+import time
 from datetime import date, datetime, timedelta
 
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
+_DOWNLOAD_TIMEOUT = 30  # seconds — per-request connect+read timeout
+_DOWNLOAD_RETRIES = 5   # total attempts before giving up
+
 
 def fetch_closes():
     """Download 5 days of daily closes via yfinance and return the Close DataFrame.
+
+    Each attempt has a _DOWNLOAD_TIMEOUT-second timeout so a hung TCP
+    connection cannot stall the launchd job indefinitely.  Retries up to
+    _DOWNLOAD_RETRIES times with a 5-second pause between attempts to ride
+    out transient network hiccups (common at exactly 8 AM JST).
 
     yfinance is imported here (not at module level) so the module remains
     importable in test environments where the library may be absent.
@@ -26,16 +35,27 @@ def fetch_closes():
         print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        data = yf.download(
-            tickers=SYMBOLS,
-            period="5d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
+    last_exc = None
+    for attempt in range(1, _DOWNLOAD_RETRIES + 1):
+        try:
+            data = yf.download(
+                tickers=SYMBOLS,
+                period="5d",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                timeout=_DOWNLOAD_TIMEOUT,
+            )
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt < _DOWNLOAD_RETRIES:
+                time.sleep(5)
+    else:
+        print(
+            f"ERROR: yfinance download failed after {_DOWNLOAD_RETRIES} attempts: {last_exc}",
+            file=sys.stderr,
         )
-    except Exception as e:
-        print(f"ERROR: yfinance download failed: {e}", file=sys.stderr)
         sys.exit(1)
 
     if data.empty:
