@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
 _DOWNLOAD_TIMEOUT = 30  # seconds — per-request connect+read timeout
-_DOWNLOAD_RETRIES = 2   # total attempts before giving up
+_DOWNLOAD_RETRIES = 3   # total attempts before giving up
 
 
 def fetch_closes():
