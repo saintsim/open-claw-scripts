@@ -331,7 +331,7 @@ class TestFetchCloses:
                 closes = market_data.fetch_closes()
         assert closes is _MOCK_CLOSES
         assert mock_yf.download.call_count == 2
-        mock_sleep.assert_called_once_with(5)
+        mock_sleep.assert_called_once_with(market_data._DOWNLOAD_RETRY_DELAY)
 
     def test_exits_on_download_exception(self):
         """Exits after all retry attempts are exhausted."""

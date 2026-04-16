@@ -14,8 +14,9 @@ from datetime import date, datetime, timedelta
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
-_DOWNLOAD_TIMEOUT = 30  # seconds — per-request connect+read timeout
-_DOWNLOAD_RETRIES = 5   # total attempts before giving up
+_DOWNLOAD_TIMEOUT = 60      # seconds — per-request connect+read timeout
+_DOWNLOAD_RETRIES = 5       # total attempts before giving up
+_DOWNLOAD_RETRY_DELAY = 2   # seconds to wait between attempts
 
 
 def fetch_closes():
@@ -50,7 +51,7 @@ def fetch_closes():
         except Exception as e:
             last_exc = e
             if attempt < _DOWNLOAD_RETRIES:
-                time.sleep(5)
+                time.sleep(_DOWNLOAD_RETRY_DELAY)
     else:
         print(
             f"ERROR: yfinance download failed after {_DOWNLOAD_RETRIES} attempts: {last_exc}",
