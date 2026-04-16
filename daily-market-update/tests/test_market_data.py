@@ -338,7 +338,8 @@ class TestFetchCloses:
         mock_yf = MagicMock()
         mock_yf.download.side_effect = Exception("network error")
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
-            with patch("time.sleep"):
+            with patch("time.sleep") as mock_sleep:
                 with pytest.raises(SystemExit):
                     market_data.fetch_closes()
         assert mock_yf.download.call_count == market_data._DOWNLOAD_RETRIES
+        assert mock_sleep.call_count == market_data._DOWNLOAD_RETRIES - 1
