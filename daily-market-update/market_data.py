@@ -14,17 +14,45 @@ from datetime import date, datetime, timedelta
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
-_DOWNLOAD_TIMEOUT = 60      # seconds — per-request connect+read timeout
-_DOWNLOAD_RETRIES = 5       # total attempts before giving up
+_DOWNLOAD_PERIOD   = "5d"   # yfinance period parameter
+_DOWNLOAD_INTERVAL = "1d"   # yfinance interval parameter
+_DOWNLOAD_TIMEOUT  = 60     # seconds — per-request connect+read timeout
+_DOWNLOAD_RETRIES  = 5      # total attempts before giving up
 _DOWNLOAD_RETRY_DELAY = 2   # seconds to wait between attempts
 
 
 def _log(msg):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", file=sys.stderr)
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [market_data] {msg}", file=sys.stderr)
+
+
+def _classify_download_error(exc):
+    """Return a concise, actionable description of a yfinance download exception."""
+    name = type(exc).__name__
+    text = str(exc).lower()
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+
+    if status == 429:
+        return f"rate limited by Yahoo Finance (HTTP 429) — {name}"
+    if status == 403:
+        return f"access forbidden, possible IP block (HTTP 403) — {name}"
+    if status:
+        return f"HTTP {status} from Yahoo Finance — {name}: {exc}"
+    if "Timeout" in name or "timeout" in text:
+        return f"timed out after {_DOWNLOAD_TIMEOUT}s — {name}"
+    if "ConnectionError" in name or "connection" in text:
+        return f"network connectivity failure — {name}: {exc}"
+    if "JSONDecodeError" in name or "json" in text:
+        return f"bad response from Yahoo Finance (JSON parse error) — {name}"
+    return f"{name}: {exc}"
+
+
+def _is_stale(series, ref_date):
+    """Return True if the series' last date lags the FX reference date."""
+    return ref_date is not None and series.index[-1].date() < ref_date
 
 
 def fetch_closes():
-    """Download 5 days of daily closes via yfinance and return the Close DataFrame.
+    """Download _DOWNLOAD_PERIOD of daily closes via yfinance and return the Close DataFrame.
 
     Each attempt has a _DOWNLOAD_TIMEOUT-second timeout so a hung TCP
     connection cannot stall the launchd job indefinitely.  Retries up to
@@ -40,8 +68,11 @@ def fetch_closes():
         print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
         sys.exit(1)
 
+    _log(f"yfinance version: {yf.__version__}")
     _log(f"Fetching {len(SYMBOLS)} symbols: {', '.join(SYMBOLS)}")
-    _log(f"Settings: period=5d, timeout={_DOWNLOAD_TIMEOUT}s, max_retries={_DOWNLOAD_RETRIES}, retry_delay={_DOWNLOAD_RETRY_DELAY}s")
+    _log(f"Settings: period={_DOWNLOAD_PERIOD}, interval={_DOWNLOAD_INTERVAL}, "
+         f"timeout={_DOWNLOAD_TIMEOUT}s, max_retries={_DOWNLOAD_RETRIES}, "
+         f"retry_delay={_DOWNLOAD_RETRY_DELAY}s")
 
     last_exc = None
     for attempt in range(1, _DOWNLOAD_RETRIES + 1):
@@ -49,8 +80,8 @@ def fetch_closes():
             _log(f"Download attempt {attempt}/{_DOWNLOAD_RETRIES}...")
             data = yf.download(
                 tickers=SYMBOLS,
-                period="5d",
-                interval="1d",
+                period=_DOWNLOAD_PERIOD,
+                interval=_DOWNLOAD_INTERVAL,
                 auto_adjust=True,
                 progress=False,
                 timeout=_DOWNLOAD_TIMEOUT,
@@ -59,13 +90,14 @@ def fetch_closes():
             break
         except Exception as e:
             last_exc = e
-            _log(f"Attempt {attempt}/{_DOWNLOAD_RETRIES} failed: {type(e).__name__}: {e}")
+            _log(f"Attempt {attempt}/{_DOWNLOAD_RETRIES} failed: {_classify_download_error(e)}")
             if attempt < _DOWNLOAD_RETRIES:
                 _log(f"Retrying in {_DOWNLOAD_RETRY_DELAY}s...")
                 time.sleep(_DOWNLOAD_RETRY_DELAY)
     else:
         print(
-            f"ERROR: yfinance download failed after {_DOWNLOAD_RETRIES} attempts: {last_exc}",
+            f"ERROR: yfinance download failed after {_DOWNLOAD_RETRIES} attempts: "
+            f"{_classify_download_error(last_exc)}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -80,6 +112,7 @@ def fetch_closes():
         _log(f"Date range: {closes.index[0].date()} to {closes.index[-1].date()}")
         return closes
     except KeyError:
+        _log(f"ERROR: no Close column — data.columns (first 10): {list(data.columns)[:10]}")
         print("ERROR: no Close column in yfinance result", file=sys.stderr)
         sys.exit(1)
 
@@ -139,7 +172,7 @@ def fmt(closes, ref_date, sym, decimals=2, prefix=""):
         return "N/A"
     if len(series) < 2:
         return "N/A"
-    if ref_date is not None and series.index[-1].date() < ref_date:
+    if _is_stale(series, ref_date):
         return "market closed"
     return _render(float(series.iloc[-1]), float(series.iloc[-2]), decimals, prefix)
 
@@ -161,7 +194,7 @@ def fmt_jpygbp(closes, ref_date):
     try:
         series = closes["JPYGBP=X"].dropna()
         if len(series) >= 2:
-            if ref_date is not None and series.index[-1].date() < ref_date:
+            if _is_stale(series, ref_date):
                 any_stale = True
             else:
                 price, prev = float(series.iloc[-1]), float(series.iloc[-2])
@@ -173,7 +206,7 @@ def fmt_jpygbp(closes, ref_date):
         try:
             series = closes["GBPJPY=X"].dropna()
             if len(series) >= 2:
-                if ref_date is not None and series.index[-1].date() < ref_date:
+                if _is_stale(series, ref_date):
                     any_stale = True
                 else:
                     g, g_prev = float(series.iloc[-1]), float(series.iloc[-2])
