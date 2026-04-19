@@ -26,6 +26,8 @@ LOG_FILE="${HOME}/.openclaw/logs/daily-market-update.log"
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "$LOG_FILE")"
 
+DISCORD_POSTED=false
+
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
@@ -55,8 +57,15 @@ print(json.dumps({'content': sys.argv[1]}))
     -X POST \
     -H "Content-Type: application/json" \
     -d "$payload" \
-    "$WEBHOOK_URL"
+    "$WEBHOOK_URL" && DISCORD_POSTED=true
 }
+
+# If the script exits for any reason without having posted to Discord,
+# send a fallback notice so the failure is always visible in the channel.
+trap 'if [[ "$DISCORD_POSTED" == false ]]; then
+  post_to_discord "**Market Update** — script failed unexpectedly. Check \`daily-market-update.log\`." || true
+  log "Posted unexpected failure notice to Discord"
+fi' EXIT
 
 log "Starting daily-market-update"
 
