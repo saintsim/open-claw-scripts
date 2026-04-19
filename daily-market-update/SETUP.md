@@ -167,7 +167,7 @@ cd /Users/openclaw/.openclaw/workspace/daily-market-update
 python3 market_data.py
 
 # Simulate Saturday's post (data is always live — only the label changes)
-python3 market_data.py --date "Sat 19 Apr 2026"
+python3 market_data.py --date "Sat 18 Apr 2026"
 ```
 
 Note: market data is always fetched live from Yahoo Finance. The `--date` flag only changes the date label in the Discord message header. Running on Sunday with `--date "Sat 19 Apr 2026"` gives the same closes as Saturday's run would have seen, since yfinance returns historical data.
@@ -187,7 +187,7 @@ launchctl unload -w \
 
 - **All data from Yahoo Finance via the `yfinance` library** — no API key, no account required
 - `yfinance` handles session management; the script downloads 5 days of daily closes in a single request with a 60-second timeout per attempt
-- **Retry behaviour**: if the download fails (timeout, network error, HTTP error), the script retries up to 5 times with a 2-second pause between attempts. If all attempts fail, a short failure notice is posted to Discord and the full error (including error type) is written to the log.
+- **Retry behaviour**: if the download fails (timeout, network error, HTTP error), the script makes up to 5 attempts with a 2-second pause between each. If all attempts fail, a short failure notice is posted to Discord and the full error (including error type) is written to the log.
 - **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
 - If Yahoo Finance changes their data format, the log will show the yfinance version and the exact error — update `yfinance` first: `pip3 install --upgrade yfinance`
@@ -201,7 +201,7 @@ launchctl unload -w \
 
 | Symptom | Fix |
 |---|---|
-| Discord shows "data fetch failed" | Check the log — the line after "Download attempt N/5" will show the error type (timeout, HTTP 429 rate limit, HTTP 403 IP block, network failure, etc.) |
+| Discord shows "data fetch failed" | Check the log — look for `Attempt N/5 failed:` entries which show the error type (timeout, HTTP 429 rate limit, HTTP 403 IP block, network failure, etc.) |
 | Discord shows "script failed unexpectedly" | Check the log — look for the last entry before "EXIT trap fired" |
 | Log says `ERROR: WEBHOOK_URL not set` | Edit `market-update.sh` and replace the placeholder |
 | Log shows `timed out after 60s` on all 5 attempts | Intermittent Yahoo Finance connectivity at 8 AM JST — the retry count or timeout can be increased in `market_data.py` (`_DOWNLOAD_TIMEOUT`, `_DOWNLOAD_RETRIES`) |
