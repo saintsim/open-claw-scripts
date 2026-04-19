@@ -7,6 +7,7 @@
 #
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
+import argparse
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -55,9 +56,9 @@ def fetch_closes():
     """Download _DOWNLOAD_PERIOD of daily closes via yfinance and return the Close DataFrame.
 
     Each attempt has a _DOWNLOAD_TIMEOUT-second timeout so a hung TCP
-    connection cannot stall the launchd job indefinitely.  Retries up to
-    _DOWNLOAD_RETRIES times with a _DOWNLOAD_RETRY_DELAY-second pause between
-    attempts to ride out transient network hiccups (common at exactly 8 AM JST).
+    connection cannot stall the launchd job indefinitely.  Makes up to
+    _DOWNLOAD_RETRIES attempts with a _DOWNLOAD_RETRY_DELAY-second pause between
+    each to ride out transient network hiccups (common at exactly 8 AM JST).
 
     yfinance is imported here (not at module level) so the module remains
     importable in test environments where the library may be absent.
@@ -268,8 +269,18 @@ def build_message(closes, today=None):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Fetch and format daily market data.")
+    parser.add_argument(
+        "--date",
+        metavar="DATE",
+        help='Override the header date label, e.g. "Sat 19 Apr 2026". '
+             "Useful for testing without waiting for the launchd schedule. "
+             "Market data is always live — only the label changes.",
+    )
+    args = parser.parse_args()
+
     closes = fetch_closes()
-    print(build_message(closes))
+    print(build_message(closes, today=args.date))
 
 
 if __name__ == "__main__":

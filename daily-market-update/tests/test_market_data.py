@@ -8,7 +8,9 @@ Run from the repo root:
 The yfinance network call is mocked throughout — no internet required.
 """
 
+import io
 import sys
+from contextlib import redirect_stdout
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -346,3 +348,27 @@ class TestFetchCloses:
                     market_data.fetch_closes()
         assert mock_yf.download.call_count == market_data._DOWNLOAD_RETRIES
         assert mock_sleep.call_count == market_data._DOWNLOAD_RETRIES - 1
+
+
+# ---------------------------------------------------------------------------
+# main() — CLI argument plumbing
+# ---------------------------------------------------------------------------
+
+class TestMain:
+    def _run_main(self, argv):
+        buf = io.StringIO()
+        with patch.object(market_data, "fetch_closes", return_value=_MOCK_CLOSES):
+            with patch("sys.argv", argv):
+                with redirect_stdout(buf):
+                    market_data.main()
+        return buf.getvalue()
+
+    def test_date_flag_sets_header(self):
+        """--date value appears in the message header."""
+        output = self._run_main(["market_data.py", "--date", "Sat 19 Apr 2026"])
+        assert "**Market Update — Sat 19 Apr 2026**" in output
+
+    def test_no_date_flag_uses_current_date(self):
+        """Without --date the header contains today's date in the expected format."""
+        output = self._run_main(["market_data.py"])
+        assert "**Market Update —" in output
