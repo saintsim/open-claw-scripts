@@ -26,6 +26,8 @@ LOG_FILE="${HOME}/.openclaw/logs/daily-market-update.log"
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "$LOG_FILE")"
 
+DISCORD_POSTED=false
+
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
 }
@@ -55,10 +57,19 @@ print(json.dumps({'content': sys.argv[1]}))
     -X POST \
     -H "Content-Type: application/json" \
     -d "$payload" \
-    "$WEBHOOK_URL"
+    "$WEBHOOK_URL" && DISCORD_POSTED=true
 }
 
+# If the script exits for any reason without having posted to Discord,
+# send a fallback notice so the failure is always visible in the channel.
+trap 'log "EXIT trap fired (DISCORD_POSTED=${DISCORD_POSTED})"
+if [[ "$DISCORD_POSTED" == false ]]; then
+  post_to_discord "**Market Update** — script failed unexpectedly. Check \`daily-market-update.log\`." || true
+  log "Posted unexpected failure notice to Discord"
+fi' EXIT
+
 log "Starting daily-market-update"
+log "python3: $(python3 --version 2>&1 || echo 'not found')"
 
 # ---------------------------------------------------------------------------
 # Sunday / Monday: no complete daily bars available — post a heartbeat
@@ -72,6 +83,7 @@ log "Starting daily-market-update"
 # Adding a future notice day: add a case entry with NOTICE and NOTICE_LABEL.
 # ---------------------------------------------------------------------------
 DAY=$(date +%u)
+log "Day of week: $DAY (1=Mon…7=Sun)"
 NOTICE=""
 NOTICE_LABEL=""
 case "$DAY" in
@@ -82,6 +94,7 @@ case "$DAY" in
 esac
 
 if [[ -n "$NOTICE" ]]; then
+  log "Posting $NOTICE_LABEL notice..."
   post_to_discord "$NOTICE" \
     && log "$NOTICE_LABEL: posted notice" \
     || { log "ERROR: Discord webhook POST failed ($NOTICE_LABEL notice)"; exit 1; }
@@ -95,24 +108,33 @@ fi
 # download 5 days of daily closes for FX, equity, and commodity symbols.
 # At 08:00 JST US markets are closed, so iloc[-1] = yesterday's close and
 # iloc[-2] = the prior close, giving the previous day's move.
+#
+# Stderr is redirected to the log so yfinance error messages are captured.
+# On failure a notice is posted to Discord so the error is visible.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py")
+log "Running market_data.py (${SCRIPT_DIR}/market_data.py)..."
+if ! MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py" 2>>"$LOG_FILE"); then
+  log "ERROR: market_data.py failed — see above for details"
+  post_to_discord "**Market Update** — data fetch failed. Check \`daily-market-update.log\`." \
+    && log "Posted failure notice to Discord" \
+    || log "ERROR: could not post failure notice to Discord"
+  exit 1
+fi
 
-# set -euo pipefail exits if market_data.py fails.
-# This guard catches the rare edge case where Python exits 0 but prints nothing.
 if [[ -z "$MESSAGE" ]]; then
   log "ERROR: market_data.py produced no output"
   exit 1
 fi
 
-log "Market data fetched and formatted"
+log "Market data fetched and formatted (${#MESSAGE} chars)"
 
 # ---------------------------------------------------------------------------
 # Post to Discord
 # ---------------------------------------------------------------------------
+log "Posting to Discord (${#MESSAGE} chars)..."
 post_to_discord "$MESSAGE" \
-  && log "Posted to Discord" \
+  && log "Posted to Discord successfully" \
   || { log "ERROR: Discord webhook POST failed"; exit 1; }
 
 log "Done"
