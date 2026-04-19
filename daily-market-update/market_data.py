@@ -7,6 +7,7 @@
 #
 # Prerequisite: pip3 install yfinance  (see SETUP.md)
 
+import argparse
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -268,12 +269,10 @@ def build_message(closes, today=None):
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser(description="Fetch and format daily market data.")
     parser.add_argument(
         "--date",
         metavar="DATE",
-        default=None,
         help='Override the header date label, e.g. "Sat 19 Apr 2026". '
              "Useful for testing without waiting for the launchd schedule. "
              "Market data is always live — only the label changes.",
