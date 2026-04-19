@@ -19,6 +19,10 @@ _DOWNLOAD_RETRIES = 5       # total attempts before giving up
 _DOWNLOAD_RETRY_DELAY = 2   # seconds to wait between attempts
 
 
+def _log(msg):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", file=sys.stderr)
+
+
 def fetch_closes():
     """Download 5 days of daily closes via yfinance and return the Close DataFrame.
 
@@ -36,9 +40,13 @@ def fetch_closes():
         print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
         sys.exit(1)
 
+    _log(f"Fetching {len(SYMBOLS)} symbols: {', '.join(SYMBOLS)}")
+    _log(f"Settings: period=5d, timeout={_DOWNLOAD_TIMEOUT}s, max_retries={_DOWNLOAD_RETRIES}, retry_delay={_DOWNLOAD_RETRY_DELAY}s")
+
     last_exc = None
     for attempt in range(1, _DOWNLOAD_RETRIES + 1):
         try:
+            _log(f"Download attempt {attempt}/{_DOWNLOAD_RETRIES}...")
             data = yf.download(
                 tickers=SYMBOLS,
                 period="5d",
@@ -47,10 +55,13 @@ def fetch_closes():
                 progress=False,
                 timeout=_DOWNLOAD_TIMEOUT,
             )
+            _log(f"Attempt {attempt}/{_DOWNLOAD_RETRIES} succeeded — shape: {data.shape}")
             break
         except Exception as e:
             last_exc = e
+            _log(f"Attempt {attempt}/{_DOWNLOAD_RETRIES} failed: {type(e).__name__}: {e}")
             if attempt < _DOWNLOAD_RETRIES:
+                _log(f"Retrying in {_DOWNLOAD_RETRY_DELAY}s...")
                 time.sleep(_DOWNLOAD_RETRY_DELAY)
     else:
         print(
@@ -64,7 +75,10 @@ def fetch_closes():
         sys.exit(1)
 
     try:
-        return data["Close"]
+        closes = data["Close"]
+        _log(f"Close data extracted — {len(closes.columns)} symbols, {len(closes)} rows")
+        _log(f"Date range: {closes.index[0].date()} to {closes.index[-1].date()}")
+        return closes
     except KeyError:
         print("ERROR: no Close column in yfinance result", file=sys.stderr)
         sys.exit(1)
@@ -96,7 +110,9 @@ def _compute_ref_date(closes):
     # Fall back to yesterday if no FX data is available (yfinance gap or
     # a global FX closure). Using yesterday ensures holiday detection stays
     # active — it does not assume FX absence implies equities are also closed.
-    return max(dates) if dates else date.today() - timedelta(days=1)
+    ref = max(dates) if dates else date.today() - timedelta(days=1)
+    _log(f"ref_date={ref} (derived from {len(dates)} FX symbol(s); today={date.today()})")
+    return ref
 
 
 def _render(price, prev, decimals, prefix=""):
@@ -189,6 +205,7 @@ def build_message(closes, today=None):
         today = datetime.now().strftime("%a %d %b %Y")
 
     ref_date = _compute_ref_date(closes)
+    _log(f"Building message for {today}")
 
     lines = [
         f"**Market Update — {today}**",
@@ -210,7 +227,13 @@ def build_message(closes, today=None):
         "_Change vs prior close_",
     ]
 
-    return "\n".join(lines)
+    for line in lines:
+        if line.startswith("•"):
+            _log(f"  {line.strip()}")
+
+    result = "\n".join(lines)
+    _log(f"Message built — {len(result)} chars")
+    return result
 
 
 def main():
