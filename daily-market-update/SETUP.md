@@ -13,6 +13,8 @@ A launchd job fires at 8 AM JST every day. It runs `market-update.sh`, which:
 3. Shows the change vs the prior close for every line
 4. POSTs the message to Discord via webhook
 
+If the data fetch fails after all retries, a short failure notice is posted to Discord so the error is always visible in the channel. Full diagnostics are in the log.
+
 No model runs at execution time. No agent commentary. Pure shell + Python + HTTP.
 
 **Instruments tracked:**
@@ -53,16 +55,17 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
 
 ---
 
-## Step 2 — Deploy the script
+## Step 2 — Deploy the scripts
 
 ```bash
 # Create the workspace directory
 mkdir -p /Users/openclaw/.openclaw/workspace/daily-market-update
 
-# Copy the script from this repo
+# Copy both scripts from this repo (market-update.sh calls market_data.py)
 cp market-update.sh /Users/openclaw/.openclaw/workspace/daily-market-update/market-update.sh
+cp market_data.py   /Users/openclaw/.openclaw/workspace/daily-market-update/market_data.py
 
-# Make it executable
+# Make the shell script executable
 chmod +x /Users/openclaw/.openclaw/workspace/daily-market-update/market-update.sh
 
 # Insert your webhook URL
@@ -153,6 +156,24 @@ tail -f /Users/openclaw/.openclaw/logs/daily-market-update.log
 
 ---
 
+## Manual testing — simulating a different date
+
+`market_data.py` can be run directly with a `--date` flag to override the header label. This is useful for checking output on demand without waiting for the 8 AM launchd run, or for simulating what a past day's post would have looked like.
+
+```bash
+cd /Users/openclaw/.openclaw/workspace/daily-market-update
+
+# Run with today's date (same as the launchd job)
+python3 market_data.py
+
+# Simulate Saturday's post (data is always live — only the label changes)
+python3 market_data.py --date "Sat 19 Apr 2026"
+```
+
+Note: market data is always fetched live from Yahoo Finance. The `--date` flag only changes the date label in the Discord message header. Running on Sunday with `--date "Sat 19 Apr 2026"` gives the same closes as Saturday's run would have seen, since yfinance returns historical data.
+
+---
+
 ## If you need to stop it
 
 ```bash
@@ -165,10 +186,11 @@ launchctl unload -w \
 ## Data source notes
 
 - **All data from Yahoo Finance via the `yfinance` library** — no API key, no account required
-- `yfinance` handles session management and rate-limiting transparently; the script downloads 5 days of daily closes in a single request
+- `yfinance` handles session management; the script downloads 5 days of daily closes in a single request with a 60-second timeout per attempt
+- **Retry behaviour**: if the download fails (timeout, network error, HTTP error), the script retries up to 5 times with a 2-second pause between attempts. If all attempts fail, a short failure notice is posted to Discord and the full error (including error type) is written to the log.
 - **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
-- If Yahoo Finance changes their data format, the log will show `ERROR: yfinance download failed` or a symbol will show `N/A` — update `yfinance` first: `pip3 install --upgrade yfinance`
+- If Yahoo Finance changes their data format, the log will show the yfinance version and the exact error — update `yfinance` first: `pip3 install --upgrade yfinance`
 - **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday posts "Markets closed today. Check back tomorrow." Monday posts "US markets open later today (~11:30pm JST). Next full update Tuesday." Both Sunday and Monday skip the yfinance fetch entirely — on Monday, FX/futures have technically reopened but daily bars won't close until 5pm EST, so yfinance would just return Friday's data again (identical to Saturday's post).
 - **US market holidays (Tue–Sat runs)**: if a US holiday closed equities or commodity futures the previous day but FX still traded (e.g. Thanksgiving, Memorial Day, Good Friday), the affected instruments show "market closed" and FX shows the live Asian-session price. This is detected automatically by comparing each symbol's last close date against the FX reference date.
 - **Global FX holidays (Christmas Day, New Year's Day)**: when FX and all markets are simultaneously closed, `_compute_ref_date` falls back to yesterday. Since all instruments share the same last close date (the day before the holiday), no "market closed" labels are shown — which is correct. The update will display the last available prices with no explicit holiday notice.
@@ -179,10 +201,14 @@ launchctl unload -w \
 
 | Symptom | Fix |
 |---|---|
+| Discord shows "data fetch failed" | Check the log — the line after "Download attempt N/5" will show the error type (timeout, HTTP 429 rate limit, HTTP 403 IP block, network failure, etc.) |
+| Discord shows "script failed unexpectedly" | Check the log — look for the last entry before "EXIT trap fired" |
 | Log says `ERROR: WEBHOOK_URL not set` | Edit `market-update.sh` and replace the placeholder |
-| Log says `ERROR: yfinance download failed` | Check internet. Try `python3 -c "import yfinance as yf; print(yf.download('AAPL', period='2d', progress=False))"` |
-| Log says `ERROR: yfinance not installed` | Run `pip3 install yfinance` |
+| Log shows `timed out after 60s` on all 5 attempts | Intermittent Yahoo Finance connectivity at 8 AM JST — the retry count or timeout can be increased in `market_data.py` (`_DOWNLOAD_TIMEOUT`, `_DOWNLOAD_RETRIES`) |
+| Log shows `rate limited by Yahoo Finance (HTTP 429)` | Yahoo Finance is throttling requests — wait and retry manually, or increase `_DOWNLOAD_RETRY_DELAY` |
+| Log shows `ERROR: yfinance not installed` | Run `pip3 install yfinance` |
 | One symbol shows `N/A` | That symbol may have changed ticker on Yahoo Finance. Check at finance.yahoo.com |
+| One symbol shows `market closed` unexpectedly | Check the log for `ref_date=` — if it shows today's date the partial intra-day bar filter may have failed; check yfinance version |
 | Job doesn't run at 8 AM | Confirm Mac timezone is Asia/Tokyo. Confirm plist is loaded: `launchctl list \| grep daily-market-update` |
 | `python3 not found` | Run `which python3`. If missing: `brew install python3` |
 
@@ -198,7 +224,7 @@ pip3 install pytest pandas yfinance
 pytest daily-market-update/tests/
 ```
 
-Expected output: `25 passed`.
+Expected output: `34 passed`.
 
 ---
 
