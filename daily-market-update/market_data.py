@@ -56,9 +56,9 @@ def fetch_closes():
     """Download _DOWNLOAD_PERIOD of daily closes via yfinance and return the Close DataFrame.
 
     Each attempt has a _DOWNLOAD_TIMEOUT-second timeout so a hung TCP
-    connection cannot stall the launchd job indefinitely.  Retries up to
-    _DOWNLOAD_RETRIES times with a _DOWNLOAD_RETRY_DELAY-second pause between
-    attempts to ride out transient network hiccups (common at exactly 8 AM JST).
+    connection cannot stall the launchd job indefinitely.  Makes up to
+    _DOWNLOAD_RETRIES attempts with a _DOWNLOAD_RETRY_DELAY-second pause between
+    each to ride out transient network hiccups (common at exactly 8 AM JST).
 
     yfinance is imported here (not at module level) so the module remains
     importable in test environments where the library may be absent.

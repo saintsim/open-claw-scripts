@@ -170,7 +170,7 @@ python3 market_data.py
 python3 market_data.py --date "Sat 18 Apr 2026"
 ```
 
-Note: market data is always fetched live from Yahoo Finance. The `--date` flag only changes the date label in the Discord message header. Running on Sunday with `--date "Sat 19 Apr 2026"` gives the same closes as Saturday's run would have seen, since yfinance returns historical data.
+Note: market data is always fetched live from Yahoo Finance. The `--date` flag only changes the date label in the Discord message header. Running on Sunday with `--date "Sat 18 Apr 2026"` gives the same closes as Saturday's run would have seen, since yfinance returns historical data.
 
 ---
 
