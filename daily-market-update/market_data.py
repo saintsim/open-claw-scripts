@@ -14,11 +14,11 @@ from datetime import date, datetime, timedelta
 
 SYMBOLS = ["JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL", "^GSPC", "GC=F", "SI=F", "CL=F"]
 
-_DOWNLOAD_PERIOD   = "5d"   # yfinance period parameter
-_DOWNLOAD_INTERVAL = "1d"   # yfinance interval parameter
-_DOWNLOAD_TIMEOUT  = 60     # seconds — per-request connect+read timeout
-_DOWNLOAD_RETRIES  = 5      # total attempts before giving up
-_DOWNLOAD_RETRY_DELAY = 2   # seconds to wait between attempts
+_DOWNLOAD_PERIOD      = "5d"  # yfinance period parameter
+_DOWNLOAD_INTERVAL    = "1d"  # yfinance interval parameter
+_DOWNLOAD_TIMEOUT     = 60    # seconds — per-request connect+read timeout
+_DOWNLOAD_RETRIES     = 5     # total attempts before giving up
+_DOWNLOAD_RETRY_DELAY = 2     # seconds to wait between attempts
 
 
 def _log(msg):
@@ -41,7 +41,7 @@ def _classify_download_error(exc):
         return f"timed out after {_DOWNLOAD_TIMEOUT}s — {name}"
     if "ConnectionError" in name or "connection" in text:
         return f"network connectivity failure — {name}: {exc}"
-    if "JSONDecodeError" in name or "json" in text:
+    if "JSONDecodeError" in name:
         return f"bad response from Yahoo Finance (JSON parse error) — {name}"
     return f"{name}: {exc}"
 
@@ -65,7 +65,7 @@ def fetch_closes():
     try:
         import yfinance as yf
     except ImportError:
-        print("ERROR: yfinance not installed — run: pip3 install yfinance", file=sys.stderr)
+        _log("ERROR: yfinance not installed — run: pip3 install yfinance")
         sys.exit(1)
 
     _log(f"yfinance version: {yf.__version__}")
@@ -95,15 +95,14 @@ def fetch_closes():
                 _log(f"Retrying in {_DOWNLOAD_RETRY_DELAY}s...")
                 time.sleep(_DOWNLOAD_RETRY_DELAY)
     else:
-        print(
+        _log(
             f"ERROR: yfinance download failed after {_DOWNLOAD_RETRIES} attempts: "
-            f"{_classify_download_error(last_exc)}",
-            file=sys.stderr,
+            f"{_classify_download_error(last_exc)}"
         )
         sys.exit(1)
 
     if data.empty:
-        print("ERROR: yfinance returned no data", file=sys.stderr)
+        _log("ERROR: yfinance returned no data")
         sys.exit(1)
 
     try:
@@ -113,7 +112,6 @@ def fetch_closes():
         return closes
     except KeyError:
         _log(f"ERROR: no Close column — data.columns (first 10): {list(data.columns)[:10]}")
-        print("ERROR: no Close column in yfinance result", file=sys.stderr)
         sys.exit(1)
 
 
@@ -262,7 +260,7 @@ def build_message(closes, today=None):
 
     for line in lines:
         if line.startswith("•"):
-            _log(f"  {line.strip()}")
+            _log(f"  {line}")
 
     result = "\n".join(lines)
     _log(f"Message built — {len(result)} chars")

@@ -69,7 +69,7 @@ if [[ "$DISCORD_POSTED" == false ]]; then
 fi' EXIT
 
 log "Starting daily-market-update"
-log "python3: $(python3 --version 2>&1)"
+log "python3: $(python3 --version 2>&1 || echo 'not found')"
 
 # ---------------------------------------------------------------------------
 # Sunday / Monday: no complete daily bars available — post a heartbeat

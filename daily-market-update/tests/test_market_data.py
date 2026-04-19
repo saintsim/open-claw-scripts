@@ -312,8 +312,7 @@ class TestFetchCloses:
         with patch.dict(sys.modules, {"yfinance": mock_yf}):
             market_data.fetch_closes()
         kwargs = mock_yf.download.call_args.kwargs
-        for sym in ("JPYGBP=X", "GBPJPY=X", "USDJPY=X", "GS", "AAPL",
-                    "^GSPC", "GC=F", "SI=F", "CL=F"):
+        for sym in market_data.SYMBOLS:
             assert sym in kwargs["tickers"]
 
     def test_exits_on_empty_data(self):
