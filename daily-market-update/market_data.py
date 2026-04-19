@@ -268,8 +268,20 @@ def build_message(closes, today=None):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Fetch and format daily market data.")
+    parser.add_argument(
+        "--date",
+        metavar="DATE",
+        default=None,
+        help='Override the header date label, e.g. "Sat 19 Apr 2026". '
+             "Useful for testing without waiting for the launchd schedule. "
+             "Market data is always live — only the label changes.",
+    )
+    args = parser.parse_args()
+
     closes = fetch_closes()
-    print(build_message(closes))
+    print(build_message(closes, today=args.date))
 
 
 if __name__ == "__main__":
