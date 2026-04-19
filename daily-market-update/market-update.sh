@@ -95,12 +95,19 @@ fi
 # download 5 days of daily closes for FX, equity, and commodity symbols.
 # At 08:00 JST US markets are closed, so iloc[-1] = yesterday's close and
 # iloc[-2] = the prior close, giving the previous day's move.
+#
+# Stderr is redirected to the log so yfinance error messages are captured.
+# On failure a notice is posted to Discord so the error is visible.
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py")
+if ! MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py" 2>>"$LOG_FILE"); then
+  log "ERROR: market_data.py failed — see above for details"
+  post_to_discord "**Market Update** — data fetch failed. Check \`daily-market-update.log\`." \
+    && log "Posted failure notice to Discord" \
+    || log "ERROR: could not post failure notice to Discord"
+  exit 1
+fi
 
-# set -euo pipefail exits if market_data.py fails.
-# This guard catches the rare edge case where Python exits 0 but prints nothing.
 if [[ -z "$MESSAGE" ]]; then
   log "ERROR: market_data.py produced no output"
   exit 1
