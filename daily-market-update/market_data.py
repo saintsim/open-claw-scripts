@@ -66,7 +66,7 @@ def fetch_closes():
     try:
         import yfinance as yf
     except ImportError:
-        _log("ERROR: yfinance not installed — run: pip3 install yfinance")
+        _log(f"ERROR: yfinance not installed — run: {sys.executable} -m pip install yfinance")
         sys.exit(1)
 
     _log(f"yfinance version: {yf.__version__}")
