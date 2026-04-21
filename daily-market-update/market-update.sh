@@ -7,7 +7,7 @@
 # Designed to run via launchd at 8 AM JST daily.
 # Produces no meaningful stdout — OpenClaw-safe.
 #
-# Prerequisite: pip3 install yfinance  (see SETUP.md)
+# Prerequisite: python3 -m pip install yfinance  (see SETUP.md)
 
 set -euo pipefail
 
@@ -69,7 +69,7 @@ if [[ "$DISCORD_POSTED" == false ]]; then
 fi' EXIT
 
 log "Starting daily-market-update"
-log "python3: $(python3 --version 2>&1 || echo 'not found')"
+log "python3: $(python3 --version 2>&1 || echo 'not found') — $(command -v python3 2>/dev/null || echo 'path unknown')"
 
 # ---------------------------------------------------------------------------
 # Sunday / Monday: no complete daily bars available — post a heartbeat
@@ -104,7 +104,7 @@ fi
 # ---------------------------------------------------------------------------
 # Fetch and format market data via market_data.py
 #
-# market_data.py uses the yfinance library (pip3 install yfinance) to
+# market_data.py uses the yfinance library (python3 -m pip install yfinance) to
 # download 5 days of daily closes for FX, equity, and commodity symbols.
 # At 08:00 JST US markets are closed, so iloc[-1] = yesterday's close and
 # iloc[-2] = the prior close, giving the previous day's move.

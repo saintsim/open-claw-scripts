@@ -41,7 +41,7 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
 - `curl` available (ships with macOS)
 - `yfinance` Python library installed:
   ```bash
-  pip3 install yfinance
+  python3 -m pip install yfinance
   ```
 
 ---
@@ -206,7 +206,7 @@ launchctl unload -w \
 | Log says `ERROR: WEBHOOK_URL not set` | Edit `market-update.sh` and replace the placeholder |
 | Log shows `timed out after 60s` on all 5 attempts | Intermittent Yahoo Finance connectivity at 8 AM JST — the retry count or timeout can be increased in `market_data.py` (`_DOWNLOAD_TIMEOUT`, `_DOWNLOAD_RETRIES`) |
 | Log shows `rate limited by Yahoo Finance (HTTP 429)` | Yahoo Finance is throttling requests — wait and retry manually, or increase `_DOWNLOAD_RETRY_DELAY` |
-| Log shows `ERROR: yfinance not installed` | Run `pip3 install yfinance` |
+| Log shows `ERROR: yfinance not installed` | The log prints the exact command needed, e.g. `/usr/bin/python3 -m pip install yfinance`. Run that exact command — not `pip3 install` — to install into the same interpreter the script uses. |
 | One symbol shows `N/A` | That symbol may have changed ticker on Yahoo Finance. Check at finance.yahoo.com |
 | One symbol shows `market closed` unexpectedly | Check the log for `ref_date=` — if it shows today's date the partial intra-day bar filter may have failed; check yfinance version |
 | Job doesn't run at 8 AM | Confirm Mac timezone is Asia/Tokyo. Confirm plist is loaded: `launchctl list \| grep daily-market-update` |
@@ -220,7 +220,7 @@ The Python logic lives in `market_data.py` and has a pytest suite in `tests/`.
 No internet connection is required — `yf.download` is mocked throughout.
 
 ```bash
-pip3 install pytest pandas yfinance
+python3 -m pip install pytest pandas yfinance
 pytest daily-market-update/tests/
 ```
 
