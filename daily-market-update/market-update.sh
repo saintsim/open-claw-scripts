@@ -7,7 +7,7 @@
 # Designed to run via launchd at 8 AM JST daily.
 # Produces no meaningful stdout — OpenClaw-safe.
 #
-# Prerequisite: python3 -m pip install yfinance  (see SETUP.md)
+# Prerequisite: python3 available (yfinance is installed automatically)
 
 set -euo pipefail
 
@@ -19,6 +19,8 @@ WEBHOOK_URL="REPLACE_WITH_YOUR_DISCORD_WEBHOOK_URL"
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_PYTHON="${SCRIPT_DIR}/venv/bin/python3"
 LOG_FILE="${HOME}/.openclaw/logs/daily-market-update.log"
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ fi
 # ---------------------------------------------------------------------------
 # post_to_discord <message>
 # JSON-encodes content and POSTs to the webhook.
+# Uses system python3 (stdlib only) so it works even if the venv is absent.
 # ---------------------------------------------------------------------------
 post_to_discord() {
   local content="$1"
@@ -69,7 +72,50 @@ if [[ "$DISCORD_POSTED" == false ]]; then
 fi' EXIT
 
 log "Starting daily-market-update"
-log "python3: $(python3 --version 2>&1 || echo 'not found') — $(command -v python3 2>/dev/null || echo 'path unknown')"
+
+# ---------------------------------------------------------------------------
+# Python bootstrap
+#
+# Priority order:
+#   1. Use the venv if it already has yfinance (fast path — every normal run)
+#   2. Create/repair the venv and pip install yfinance (first run or repairs)
+#   3. Fall back to any system Python that already has yfinance installed
+#      (handles cases where pip install has no write permission or fails)
+# ---------------------------------------------------------------------------
+PYTHON=""
+
+# Fast path: venv exists and has yfinance
+if [[ -x "$VENV_PYTHON" ]] && "$VENV_PYTHON" -c "import yfinance" 2>/dev/null; then
+  PYTHON="$VENV_PYTHON"
+  log "Using venv Python: $("$PYTHON" --version 2>&1) — ${PYTHON}"
+else
+  # Try to create or repair the venv
+  log "venv not ready — attempting to create at ${SCRIPT_DIR}/venv..."
+  if python3 -m venv "${SCRIPT_DIR}/venv" 2>>"$LOG_FILE" \
+      && "${SCRIPT_DIR}/venv/bin/pip" install --quiet yfinance >>"$LOG_FILE" 2>&1; then
+    PYTHON="$VENV_PYTHON"
+    log "venv ready: $("$PYTHON" --version 2>&1) — ${PYTHON}"
+  else
+    # Venv setup failed — search common locations for a Python with yfinance
+    log "WARNING: venv setup failed — searching for a system Python with yfinance"
+    for candidate in \
+        /opt/homebrew/bin/python3 \
+        /usr/local/bin/python3 \
+        /usr/bin/python3 \
+        /Applications/Xcode.app/Contents/Developer/usr/bin/python3; do
+      if [[ -x "$candidate" ]] && "$candidate" -c "import yfinance" 2>/dev/null; then
+        PYTHON="$candidate"
+        log "Falling back to: $("$PYTHON" --version 2>&1) — ${PYTHON}"
+        break
+      fi
+    done
+  fi
+fi
+
+if [[ -z "$PYTHON" ]]; then
+  log "ERROR: no Python with yfinance found — install yfinance or fix venv (see SETUP.md)"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Sunday / Monday: no complete daily bars available — post a heartbeat
@@ -104,17 +150,13 @@ fi
 # ---------------------------------------------------------------------------
 # Fetch and format market data via market_data.py
 #
-# market_data.py uses the yfinance library (python3 -m pip install yfinance) to
-# download 5 days of daily closes for FX, equity, and commodity symbols.
-# At 08:00 JST US markets are closed, so iloc[-1] = yesterday's close and
-# iloc[-2] = the prior close, giving the previous day's move.
-#
+# Uses the resolved $PYTHON so yfinance is always available regardless of
+# which python3 is in PATH at 08:00 JST.
 # Stderr is redirected to the log so yfinance error messages are captured.
 # On failure a notice is posted to Discord so the error is visible.
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 log "Running market_data.py (${SCRIPT_DIR}/market_data.py)..."
-if ! MESSAGE=$(python3 "${SCRIPT_DIR}/market_data.py" 2>>"$LOG_FILE"); then
+if ! MESSAGE=$("$PYTHON" "${SCRIPT_DIR}/market_data.py" 2>>"$LOG_FILE"); then
   log "ERROR: market_data.py failed — see above for details"
   post_to_discord "**Market Update** — data fetch failed. Check \`daily-market-update.log\`." \
     && log "Posted failure notice to Discord" \
