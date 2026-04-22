@@ -8,10 +8,11 @@ These are exact, step-by-step instructions. Run every command as the `openclaw` 
 
 A launchd job fires at 8 AM JST every day. It runs `market-update.sh`, which:
 
-1. Fetches live quotes from Yahoo Finance (no API key required)
-2. Formats a single Discord message with bullet points for each instrument
-3. Shows the change vs the prior close for every line
-4. POSTs the message to Discord via webhook
+1. Creates a Python virtual environment (venv) on first run and installs `yfinance` into it
+2. Fetches live quotes from Yahoo Finance (no API key required)
+3. Formats a single Discord message with bullet points for each instrument
+4. Shows the change vs the prior close for every line
+5. POSTs the message to Discord via webhook
 
 If the data fetch fails after all retries, a short failure notice is posted to Discord so the error is always visible in the channel. Full diagnostics are in the log.
 
@@ -39,10 +40,8 @@ No model runs at execution time. No agent commentary. Pure shell + Python + HTTP
   - Set if needed: `sudo systemsetup -settimezone Asia/Tokyo`
 - `python3` available (confirm: `python3 --version`)
 - `curl` available (ships with macOS)
-- `yfinance` Python library installed:
-  ```bash
-  python3 -m pip install yfinance
-  ```
+
+`yfinance` is installed automatically — no manual pip step required. On first run the script creates a virtual environment at `daily-market-update/venv/` and installs `yfinance` into it. Subsequent runs use the venv directly. If venv creation fails (e.g. no write permission), the script falls back to any system Python that already has `yfinance` installed.
 
 ---
 
@@ -75,6 +74,8 @@ nano /Users/openclaw/.openclaw/workspace/daily-market-update/market-update.sh
 # To your actual webhook URL, e.g.:
 #   WEBHOOK_URL="https://discord.com/api/webhooks/123456789/abcdef..."
 ```
+
+No pip install step — `yfinance` is installed automatically into a local venv on first run.
 
 ---
 
@@ -164,10 +165,10 @@ tail -f /Users/openclaw/.openclaw/logs/daily-market-update.log
 cd /Users/openclaw/.openclaw/workspace/daily-market-update
 
 # Run with today's date (same as the launchd job)
-python3 market_data.py
+venv/bin/python3 market_data.py
 
 # Simulate Saturday's post (data is always live — only the label changes)
-python3 market_data.py --date "Sat 18 Apr 2026"
+venv/bin/python3 market_data.py --date "Sat 18 Apr 2026"
 ```
 
 Note: market data is always fetched live from Yahoo Finance. The `--date` flag only changes the date label in the Discord message header. Running on Sunday with `--date "Sat 18 Apr 2026"` gives the same closes as Saturday's run would have seen, since yfinance returns historical data.
@@ -190,7 +191,7 @@ launchctl unload -w \
 - **Retry behaviour**: if the download fails (timeout, network error, HTTP error), the script makes up to 5 attempts with a 2-second pause between each. If all attempts fail, a short failure notice is posted to Discord and the full error (including error type) is written to the log.
 - **"Change vs prior close"** — at 8 AM JST, US markets have been closed for ~2–4 hours, so the latest close reflects the previous trading day and the change figure shows that day's move
 - FX markets trade 24/7; at 8 AM JST the FX rates are live Asian-session prices and the change is vs the prior 5 PM EST roll
-- If Yahoo Finance changes their data format, the log will show the yfinance version and the exact error — update `yfinance` first: `pip3 install --upgrade yfinance`
+- If Yahoo Finance changes their data format, the log will show the yfinance version and the exact error — update `yfinance` first: `venv/bin/pip install --upgrade yfinance` (run from the workspace directory)
 - **Weekends**: the launchd job fires every day. Saturday posts Friday's closing prices with Friday's real change vs Thursday — a useful post. Sunday posts "Markets closed today. Check back tomorrow." Monday posts "US markets open later today (~11:30pm JST). Next full update Tuesday." Both Sunday and Monday skip the yfinance fetch entirely — on Monday, FX/futures have technically reopened but daily bars won't close until 5pm EST, so yfinance would just return Friday's data again (identical to Saturday's post).
 - **US market holidays (Tue–Sat runs)**: if a US holiday closed equities or commodity futures the previous day but FX still traded (e.g. Thanksgiving, Memorial Day, Good Friday), the affected instruments show "market closed" and FX shows the live Asian-session price. This is detected automatically by comparing each symbol's last close date against the FX reference date.
 - **Global FX holidays (Christmas Day, New Year's Day)**: when FX and all markets are simultaneously closed, `_compute_ref_date` falls back to yesterday. Since all instruments share the same last close date (the day before the holiday), no "market closed" labels are shown — which is correct. The update will display the last available prices with no explicit holiday notice.
@@ -206,7 +207,7 @@ launchctl unload -w \
 | Log says `ERROR: WEBHOOK_URL not set` | Edit `market-update.sh` and replace the placeholder |
 | Log shows `timed out after 60s` on all 5 attempts | Intermittent Yahoo Finance connectivity at 8 AM JST — the retry count or timeout can be increased in `market_data.py` (`_DOWNLOAD_TIMEOUT`, `_DOWNLOAD_RETRIES`) |
 | Log shows `rate limited by Yahoo Finance (HTTP 429)` | Yahoo Finance is throttling requests — wait and retry manually, or increase `_DOWNLOAD_RETRY_DELAY` |
-| Log shows `ERROR: yfinance not installed` | The log prints the exact command needed, e.g. `/usr/bin/python3 -m pip install yfinance`. Run that exact command — not `pip3 install` — to install into the same interpreter the script uses. |
+| Log shows `ERROR: no Python with yfinance found` | The venv setup failed and no fallback was found. Delete the venv (`rm -rf /Users/openclaw/.openclaw/workspace/daily-market-update/venv`) and run the script manually to see the full pip error, then fix the underlying issue. |
 | One symbol shows `N/A` | That symbol may have changed ticker on Yahoo Finance. Check at finance.yahoo.com |
 | One symbol shows `market closed` unexpectedly | Check the log for `ref_date=` — if it shows today's date the partial intra-day bar filter may have failed; check yfinance version |
 | Job doesn't run at 8 AM | Confirm Mac timezone is Asia/Tokyo. Confirm plist is loaded: `launchctl list \| grep daily-market-update` |
